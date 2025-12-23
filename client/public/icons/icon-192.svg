@@ -1,0 +1,21 @@
+<svg width="192" height="192" viewBox="0 0 192 192" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="192" height="192" rx="32" fill="#0A1628"/>
+  <defs>
+    <linearGradient id="aurora" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#22D3EE"/>
+      <stop offset="100%" stop-color="#06B6D4"/>
+    </linearGradient>
+  </defs>
+  <!-- Cloud shape -->
+  <path d="M140 100c0-16.569-13.431-30-30-30-4.032 0-7.876.796-11.385 2.239C93.765 58.97 81.235 50 66.667 50 47.462 50 32 65.462 32 84.667c0 1.127.054 2.241.158 3.339C24.504 91.42 20 98.94 20 107.5c0 12.426 10.074 22.5 22.5 22.5h95c12.426 0 22.5-10.074 22.5-22.5 0-3.283-.703-6.402-1.967-9.215.31-2.55.467-5.148.467-7.785z" fill="url(#aurora)"/>
+  <!-- Snowflake/data points -->
+  <circle cx="60" cy="95" r="4" fill="#0A1628"/>
+  <circle cx="80" cy="105" r="4" fill="#0A1628"/>
+  <circle cx="100" cy="95" r="4" fill="#0A1628"/>
+  <circle cx="120" cy="105" r="4" fill="#0A1628"/>
+  <!-- Connecting lines representing consensus -->
+  <path d="M60 95L80 105L100 95L120 105" stroke="#0A1628" stroke-width="2" stroke-linecap="round"/>
+  <!-- Gauge arc at bottom -->
+  <path d="M56 150 A40 40 0 0 1 136 150" stroke="url(#aurora)" stroke-width="6" stroke-linecap="round" fill="none"/>
+  <circle cx="96" cy="150" r="8" fill="url(#aurora)"/>
+</svg>

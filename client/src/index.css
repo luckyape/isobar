@@ -1,0 +1,238 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+/* Arctic Data Observatory Design System
+ * - Primary: Deep arctic blue backgrounds
+ * - Accent: Aurora cyan/teal for highlights
+ * - Typography: Space Grotesk (display), Inter (body), JetBrains Mono (data)
+ */
+
+@theme inline {
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+  
+  /* Custom Arctic colors */
+  --color-arctic: oklch(0.75 0.15 195);
+  --color-aurora: oklch(0.78 0.18 180);
+  --color-glacier: oklch(0.97 0.01 240);
+  --color-agreement-high: oklch(0.72 0.19 160);
+  --color-agreement-medium: oklch(0.75 0.18 85);
+  --color-agreement-low: oklch(0.65 0.22 25);
+  
+  /* Font families */
+  --font-display: "Space Grotesk", system-ui, sans-serif;
+  --font-body: "Inter", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+}
+
+:root {
+  --radius: 0.75rem;
+  
+  /* Dark theme as default - Arctic Observatory */
+  --background: oklch(0.12 0.02 240);
+  --foreground: oklch(0.95 0.01 240);
+  --card: oklch(0.16 0.025 240 / 80%);
+  --card-foreground: oklch(0.95 0.01 240);
+  --popover: oklch(0.14 0.02 240);
+  --popover-foreground: oklch(0.95 0.01 240);
+  --primary: oklch(0.75 0.15 195);
+  --primary-foreground: oklch(0.12 0.02 240);
+  --secondary: oklch(0.22 0.03 240);
+  --secondary-foreground: oklch(0.85 0.02 240);
+  --muted: oklch(0.20 0.02 240);
+  --muted-foreground: oklch(0.65 0.02 240);
+  --accent: oklch(0.78 0.18 180);
+  --accent-foreground: oklch(0.12 0.02 240);
+  --destructive: oklch(0.65 0.22 25);
+  --destructive-foreground: oklch(0.98 0.01 0);
+  --border: oklch(0.30 0.03 240 / 50%);
+  --input: oklch(0.25 0.03 240);
+  --ring: oklch(0.75 0.15 195);
+  
+  /* Chart colors for weather models */
+  --chart-1: oklch(0.75 0.15 195);
+  --chart-2: oklch(0.70 0.16 280);
+  --chart-3: oklch(0.72 0.19 160);
+  --chart-4: oklch(0.75 0.18 85);
+  --chart-5: oklch(0.68 0.20 320);
+  
+  --sidebar: oklch(0.10 0.02 240);
+  --sidebar-foreground: oklch(0.90 0.01 240);
+  --sidebar-primary: oklch(0.75 0.15 195);
+  --sidebar-primary-foreground: oklch(0.12 0.02 240);
+  --sidebar-accent: oklch(0.20 0.03 240);
+  --sidebar-accent-foreground: oklch(0.95 0.01 240);
+  --sidebar-border: oklch(0.25 0.02 240);
+  --sidebar-ring: oklch(0.75 0.15 195);
+}
+
+.dark {
+  /* Same as root - dark theme is default */
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-family: var(--font-body);
+  }
+  h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-display);
+  }
+  code, pre, .font-mono {
+    font-family: var(--font-mono);
+  }
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]),
+  [type="button"]:not(:disabled),
+  [type="submit"]:not(:disabled),
+  [type="reset"]:not(:disabled),
+  a[href],
+  select:not(:disabled),
+  input[type="checkbox"]:not(:disabled),
+  input[type="radio"]:not(:disabled) {
+    @apply cursor-pointer;
+  }
+}
+
+@layer components {
+  .container {
+    width: 100%;
+    margin-left: auto;
+    margin-right: auto;
+    padding-left: 1rem;
+    padding-right: 1rem;
+  }
+
+  .flex {
+    min-height: 0;
+    min-width: 0;
+  }
+
+  @media (min-width: 640px) {
+    .container {
+      padding-left: 1.5rem;
+      padding-right: 1.5rem;
+    }
+  }
+
+  @media (min-width: 1024px) {
+    .container {
+      padding-left: 2rem;
+      padding-right: 2rem;
+      max-width: 1400px;
+    }
+  }
+  
+  /* Frosted glass card effect */
+  .glass-card {
+    @apply bg-card/60 backdrop-blur-xl border border-white/10 rounded-xl;
+    box-shadow: 
+      0 4px 24px -4px oklch(0 0 0 / 30%),
+      inset 0 1px 0 oklch(1 0 0 / 5%);
+  }
+  
+  /* Aurora glow effect */
+  .aurora-glow {
+    box-shadow: 
+      0 0 40px -10px oklch(0.75 0.15 195 / 40%),
+      0 0 80px -20px oklch(0.78 0.18 180 / 30%);
+  }
+  
+  /* Confidence score colors */
+  .confidence-high {
+    color: oklch(0.72 0.19 160);
+  }
+  .confidence-medium {
+    color: oklch(0.75 0.18 85);
+  }
+  .confidence-low {
+    color: oklch(0.65 0.22 25);
+  }
+  
+  /* Data number styling */
+  .data-value {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+@layer utilities {
+  .readable-text {
+    color: var(--foreground);
+  }
+
+  .readable-text .text-muted-foreground {
+    color: var(--foreground);
+  }
+
+  .triangle-icon {
+    clip-path: polygon(50% 0%, 0% 100%, 100% 100%);
+  }
+
+  /* Subtle animation for aurora background */
+  @keyframes aurora-shift {
+    0%, 100% {
+      filter: hue-rotate(0deg);
+    }
+    50% {
+      filter: hue-rotate(15deg);
+    }
+  }
+  
+  .animate-aurora {
+    animation: aurora-shift 30s ease-in-out infinite;
+  }
+  
+  /* Pulse animation for updates */
+  @keyframes data-pulse {
+    0%, 100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.7;
+    }
+  }
+  
+  .animate-data-pulse {
+    animation: data-pulse 2s ease-in-out infinite;
+  }
+}
