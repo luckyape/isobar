@@ -7,14 +7,15 @@ export function useMediaQuery(query: string) {
     if (typeof window === 'undefined') return;
     const media = window.matchMedia(query);
     const update = () => setMatches(media.matches);
+    const supportsAddEventListener = typeof (media as { addEventListener?: unknown }).addEventListener === 'function';
     update();
-    if (media.addEventListener) {
+    if (supportsAddEventListener) {
       media.addEventListener('change', update);
     } else {
       media.addListener(update);
     }
     return () => {
-      if (media.addEventListener) {
+      if (supportsAddEventListener) {
         media.removeEventListener('change', update);
       } else {
         media.removeListener(update);
