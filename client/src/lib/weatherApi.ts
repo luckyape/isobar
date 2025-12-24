@@ -897,7 +897,7 @@ async function fetchModelForecast(
     }
 
     const fetchedAt = new Date();
-    const etag = response.headers.get('etag') ?? undefined;
+    const etag = response.headers?.get?.('etag') ?? undefined;
     const data = await response.json();
 
     // Parse hourly data
@@ -1148,7 +1148,7 @@ export async function fetchForecastsWithMetadata(
     ])
   );
   const usedCache = Array.from(cachedForecasts.values()).some((forecast) => Boolean(forecast?.hourly?.length));
-  const isOffline = options.offline ?? (typeof navigator !== 'undefined' && !navigator.onLine);
+  const isOffline = options.offline ?? (typeof navigator !== 'undefined' && navigator.onLine === false);
 
   if (isOffline) {
     const metadataById = new Map(WEATHER_MODELS.map((model) => [model.id, null]));

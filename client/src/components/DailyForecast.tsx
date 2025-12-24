@@ -211,9 +211,9 @@ export const ModelBreakdownPanel = memo(function ModelBreakdownPanel({
   timezone?: string;
   className?: string;
 }) {
-  const modelOrder = useMemo(() => {
+  const modelOrder = useMemo<string[]>(() => {
     if (!modelNames?.length) {
-      return MODEL_ORDER;
+      return [...MODEL_ORDER];
     }
     const uniqueNames = Array.from(new Set(modelNames));
     const ordered = MODEL_ORDER.filter((name) => uniqueNames.includes(name));
@@ -224,7 +224,7 @@ export const ModelBreakdownPanel = memo(function ModelBreakdownPanel({
   const modelEntries = useMemo<ModelBreakdownEntry[]>(() => {
     const forecastByName = new Map(forecasts.map((forecast) => [forecast.model.name, forecast]));
     const includeMissing = !modelNames?.length;
-    return modelOrder.flatMap((name) => {
+    return modelOrder.flatMap<ModelBreakdownEntry>((name) => {
       const forecast = forecastByName.get(name);
       if (!forecast || forecast.error) {
         if (!includeMissing) {
@@ -540,9 +540,9 @@ export const ModelHourlyBreakdownPanel = memo(function ModelHourlyBreakdownPanel
   timezone?: string;
   className?: string;
 }) {
-  const modelOrder = useMemo(() => {
+  const modelOrder = useMemo<string[]>(() => {
     if (!modelNames?.length) {
-      return MODEL_ORDER;
+      return [...MODEL_ORDER];
     }
     const uniqueNames = Array.from(new Set(modelNames));
     const ordered = MODEL_ORDER.filter((name) => uniqueNames.includes(name));
@@ -553,7 +553,7 @@ export const ModelHourlyBreakdownPanel = memo(function ModelHourlyBreakdownPanel
   const modelEntries = useMemo<ModelHourlyEntry[]>(() => {
     const forecastByName = new Map(forecasts.map((forecast) => [forecast.model.name, forecast]));
     const includeMissing = !modelNames?.length;
-    return modelOrder.flatMap((name) => {
+    return modelOrder.flatMap<ModelHourlyEntry>((name) => {
       const forecast = forecastByName.get(name);
       if (!forecast || forecast.error || forecast.hourly.length === 0) {
         if (!includeMissing) {
