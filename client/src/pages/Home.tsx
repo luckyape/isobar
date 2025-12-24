@@ -1,14 +1,9 @@
-/**
- * Home Page - Arctic Data Observatory
- * Main dashboard for Weather Consensus PWA
- * Design: Scandinavian Functionalism meets Data Visualization Art
- */
-
 import { useEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
 import { motion } from 'framer-motion';
-import { RefreshCw, Info, CloudSnow, Loader2, ChevronDownIcon } from 'lucide-react';
+import { Info, CloudSnow, Loader2, ChevronDownIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Header } from '@/components/Header';
 import {
   ComparisonTooltipCard,
   ComparisonTooltipRow,
@@ -26,7 +21,6 @@ import {
 import { useWeather } from '@/hooks/useWeather';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { ConfidenceGauge } from '@/components/ConfidenceGauge';
-import { LocationSearch } from '@/components/LocationSearch';
 import { ModelCard } from '@/components/ModelCard';
 import { DailyForecast, ModelHourlyBreakdownPanel } from '@/components/DailyForecast';
 import { GraphsPanel } from '@/components/GraphsPanel';
@@ -58,8 +52,6 @@ export default function Home() {
   const [visibleLines, setVisibleLines] = useState<Record<string, boolean>>({});
   const [heroModelsOpen, setHeroModelsOpen] = useState(false);
   const hasInitializedModels = useRef(false);
-  const refreshTimerRef = useRef<number | null>(null);
-  const refreshLongPressRef = useRef(false);
   const isHeroMobile = useMediaQuery('(max-width: 639px)');
 
   useEffect(() => {
@@ -112,12 +104,6 @@ export default function Home() {
     || forecasts.find(forecast => !forecast.error && forecast.hourly.length > 0)
     || null;
   const fallbackModelName = fallbackForecast?.model.name;
-  const freshnessScore = Number.isFinite(consensus?.freshness.freshnessScore ?? NaN)
-    ? (consensus?.freshness.freshnessScore as number)
-    : null;
-  const freshnessScoreValue = freshnessScore !== null
-    ? Math.round(freshnessScore)
-    : null;
   const refreshNoticeLabel = refreshNotice?.type === 'no-new-runs'
     ? refreshNotice.latestRunAvailabilityTime
       ? `No new runs since ${new Date(refreshNotice.latestRunAvailabilityTime * 1000).toLocaleTimeString('en-CA', {
@@ -127,7 +113,7 @@ export default function Home() {
         })}`
       : 'No new runs detected'
     : null;
-
+  
   const getCurrentConsensus = () => {
     if (!consensus?.hourly?.length) return null;
     const index = findCurrentHourIndex(
@@ -166,84 +152,7 @@ export default function Home() {
     ? WEATHER_CODES[weatherCodeValue] || { description: 'Unknown', icon: '❓' }
     : null;
 
-  const availabilityTimes = forecasts
-    .filter(forecast => !forecast.error)
-    .map(forecast => forecast.runAvailabilityTime)
-    .filter((time): time is number => Number.isFinite(time));
-  const freshestRunAvailability = availabilityTimes.length > 0 ? Math.max(...availabilityTimes) : null;
   const staleModelIds = new Set<string>();
-
-  if (freshestRunAvailability !== null) {
-    forecasts.forEach(forecast => {
-      if (forecast.error) return;
-      if (!Number.isFinite(forecast.runAvailabilityTime)) return;
-      const ageDeltaHours = (freshestRunAvailability - (forecast.runAvailabilityTime as number)) / 3600;
-      if (ageDeltaHours > 6) {
-        staleModelIds.add(forecast.model.id);
-      }
-    });
-  }
-
-  const nowSeconds = Date.now() / 1000;
-  const modelByName = new Map(forecasts.map((forecast) => [forecast.model.name, forecast]));
-  const modelColorByName = new Map(forecasts.map((forecast) => [
-    forecast.model.name,
-    forecast.model.color
-  ]));
-  const getModelColor = (name: string) =>
-    modelColorByName.get(name) ?? 'oklch(0.95 0.01 240)';
-  const getFreshnessToneByName = (name: string) => {
-    const forecast = modelByName.get(name);
-    return getModelFreshnessTone(forecast?.runAvailabilityTime, Boolean(forecast?.error));
-  };
-
-  const formatAge = (seconds: number) => {
-    const totalMinutes = Math.max(0, Math.floor(seconds / 60));
-    const hours = Math.floor(totalMinutes / 60);
-    const minutes = totalMinutes % 60;
-    return hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
-  };
-
-  const getModelFreshnessTone = (runAvailabilityTime?: number, hasError?: boolean) => {
-    if (hasError || !Number.isFinite(runAvailabilityTime)) return 'unknown';
-    const ageHours = Math.max(0, (nowSeconds - (runAvailabilityTime as number)) / 3600);
-    if (ageHours <= 6) return 'fresh';
-    if (ageHours <= 12) return 'aging';
-    return 'stale';
-  };
-
-  const handleRefreshPointerDown = () => {
-    refreshLongPressRef.current = false;
-    if (refreshTimerRef.current) {
-      window.clearTimeout(refreshTimerRef.current);
-    }
-    refreshTimerRef.current = window.setTimeout(() => {
-      refreshLongPressRef.current = true;
-      refresh({ force: true, userInitiated: true });
-    }, 650);
-  };
-
-  const handleRefreshPointerUp = () => {
-    if (refreshTimerRef.current) {
-      window.clearTimeout(refreshTimerRef.current);
-      refreshTimerRef.current = null;
-    }
-  };
-
-  const handleRefreshClick = (event: MouseEvent<HTMLButtonElement>) => {
-    if (refreshLongPressRef.current) {
-      return;
-    }
-    const force = event.altKey || event.metaKey || event.ctrlKey || event.shiftKey;
-    refresh({ force, userInitiated: true });
-  };
-
-  const freshnessToneClass: Record<string, string> = {
-    fresh: 'bg-[oklch(0.72_0.19_160)]',
-    aging: 'bg-[oklch(0.75_0.18_85)]',
-    stale: 'bg-destructive',
-    unknown: 'bg-white/10 border border-white/30'
-  };
 
   const fallbackDaily = fallbackForecast?.daily.map(day => ({
     date: day.date,
@@ -313,55 +222,13 @@ export default function Home() {
 
       {/* Main content */}
       <div className="relative z-10">
-        {/* Header */}
-        <header className="relative z-20 border-b border-white/10 backdrop-blur-sm">
-          <div className="container py-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <CloudSnow className="w-8 h-8 text-primary" />
-                <div>
-                  <h1 className="text-xl font-semibold tracking-tight">Weather Consensus</h1>
-                  <p className="text-xs text-foreground/80">Multi-Model Forecast Agreement</p>
-                </div>
-              </div>
-              
-              <div className="flex items-center gap-3">
-                <LocationSearch 
-                  currentLocation={location} 
-                  onLocationSelect={setLocation}
-                  disabled={isOffline}
-                />
-                
-                {isOffline && (
-                  <span className="rounded-full border border-white/10 bg-white/5 px-2 py-1 text-[10px] uppercase tracking-wide text-foreground/70">
-                    Offline mode
-                  </span>
-                )}
-
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      variant="outline"
-                      size="icon"
-                      onClick={handleRefreshClick}
-                      onPointerDown={handleRefreshPointerDown}
-                      onPointerUp={handleRefreshPointerUp}
-                      onPointerLeave={handleRefreshPointerUp}
-                      onPointerCancel={handleRefreshPointerUp}
-                      disabled={isLoading || isOffline}
-                      className="glass-card border-white/10"
-                    >
-                      <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent side="bottom" className={TOOLTIP_CONTENT_CLASSNAME}>
-                    <ComparisonTooltipCard title="Refresh forecasts" />
-                  </TooltipContent>
-                </Tooltip>
-              </div>
-            </div>
-          </div>
-        </header>
+        <Header 
+          location={location}
+          isOffline={isOffline}
+          isLoading={isLoading}
+          onLocationSelect={setLocation}
+          onRefresh={refresh}
+        />
 
         {/* Loading state */}
         {isLoading && !consensus && (
@@ -512,67 +379,11 @@ export default function Home() {
                               className="flex items-center justify-center gap-4 rounded-full bg-transparent p-0 border-none focus-visible:ring-2 focus-visible:ring-ring/50"
                               aria-label="Model freshness details"
                             >
-                              {forecasts.map((forecast) => {
-                                const tone = getModelFreshnessTone(
-                                  forecast.runAvailabilityTime,
-                                  Boolean(forecast.error)
-                                );
-                                return (
-                                  <span
-                                    key={`${forecast.model.id}-freshness-dot`}
-                                    className={`h-3 w-3 rounded-full inline-block opacity-50 ${freshnessToneClass[tone]}`}
-                                    aria-hidden="true"
-                                  />
-                                );
-                              })}
+                              
                             </button>
                           </TooltipTrigger>
                           <TooltipContent side="top" className={TOOLTIP_CONTENT_CLASSNAME}>
                             <ComparisonTooltipCard title="Model freshness">
-                              <ComparisonTooltipSection>
-                                <ComparisonTooltipRow
-                                  label="Freshness score"
-                                  value={freshnessScoreValue !== null ? `${freshnessScoreValue}%` : 'Unavailable'}
-                                />
-                              </ComparisonTooltipSection>
-                              <ComparisonTooltipSection divider>
-                                {forecasts.map((forecast) => {
-                                  const ageSeconds = Number.isFinite(forecast.runAvailabilityTime)
-                                    ? Math.max(0, nowSeconds - (forecast.runAvailabilityTime as number))
-                                    : null;
-                                  const ageValue = ageSeconds !== null
-                                    ? formatAge(ageSeconds)
-                                    : null;
-                                  const pendingAvailabilityTime = Number.isFinite(forecast.pendingAvailabilityTime ?? NaN)
-                                    ? (forecast.pendingAvailabilityTime as number)
-                                    : null;
-                                  const statusLabel = pendingAvailabilityTime !== null
-                                    ? 'Stabilizing'
-                                    : forecast.updateError
-                                      ? 'Cached'
-                                      : forecast.error
-                                        ? 'Error'
-                                        : null;
-                                  const valueLabel = ageValue ? `${ageValue} ago` : 'Unknown';
-                                  const valueWithStatus = statusLabel
-                                    ? `${valueLabel} (${statusLabel})`
-                                    : valueLabel;
-                                  return (
-                                    <ComparisonTooltipRow
-                                      key={`${forecast.model.id}-freshness-row`}
-                                      label={forecast.model.name}
-                                      value={valueWithStatus}
-                                      icon={
-                                        <span
-                                          className="h-2 w-2 triangle-icon"
-                                          style={{ backgroundColor: forecast.model.color }}
-                                          aria-hidden="true"
-                                        />
-                                      }
-                                    />
-                                  );
-                                })}
-                              </ComparisonTooltipSection>
                             </ComparisonTooltipCard>
                           </TooltipContent>
                         </Tooltip>
@@ -593,61 +404,23 @@ export default function Home() {
                     {showModelList && (
                       <div id="model-status-list" className="space-y-2">
                         {consensus.successfulModels.map(name => {
-                          const tone = getFreshnessToneByName(name);
-                          const forecast = modelByName.get(name);
-                          const modelAgeSeconds = Number.isFinite(forecast?.runAvailabilityTime ?? NaN)
-                            ? Math.max(0, nowSeconds - (forecast?.runAvailabilityTime as number))
-                            : null;
-                          const modelAgeLabel = modelAgeSeconds !== null
-                            ? `${formatAge(modelAgeSeconds)} old`
-                            : 'Age unknown';
-                          const statusLabel = forecast?.pendingAvailabilityTime
-                            ? 'Stabilizing'
-                            : forecast?.updateError
-                              ? 'Cached'
-                              : null;
                           return (
                             <div key={name} className="flex items-center gap-2">
                               <span className="text-sm">{name}</span>
                               <div className="flex items-center gap-1">
-                                <div
-                                  className="w-2.5 h-2.5 triangle-icon"
-                                  style={{ backgroundColor: getModelColor(name) }}
-                                />
-                                <div className={`w-2 h-2 rounded-full ${freshnessToneClass[tone]}`} />
                               </div>
                               <span className="text-[10px] text-foreground/60">
-                                {modelAgeLabel}
                               </span>
-                              {statusLabel && (
-                                <span className="text-[10px] text-foreground/60">
-                                  {statusLabel}
-                                </span>
-                              )}
                             </div>
                           );
                         })}
                         {consensus.failedModels.map(name => {
-                          const tone = getFreshnessToneByName(name);
-                          const forecast = modelByName.get(name);
-                          const modelAgeSeconds = Number.isFinite(forecast?.runAvailabilityTime ?? NaN)
-                            ? Math.max(0, nowSeconds - (forecast?.runAvailabilityTime as number))
-                            : null;
-                          const modelAgeLabel = modelAgeSeconds !== null
-                            ? `${formatAge(modelAgeSeconds)} old`
-                            : 'Age unknown';
                           return (
                             <div key={name} className="flex items-center gap-2">
                               <span className="text-sm text-destructive">{name}</span>
                               <div className="flex items-center gap-1">
-                                <div
-                                  className="w-2.5 h-2.5 triangle-icon opacity-40"
-                                  style={{ backgroundColor: getModelColor(name) }}
-                                />
-                                <div className={`w-2 h-2 rounded-full ${freshnessToneClass[tone]}`} />
                               </div>
                               <span className="text-[10px] text-foreground/60">
-                                {modelAgeLabel}
                               </span>
                             </div>
                           );

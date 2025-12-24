@@ -1,9 +1,9 @@
-import { useState, useEffect, useRef } from 'react';
-import { Star, Check, Search, MapPin, Loader2, X } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Star, Check, Search, MapPin, Loader2, X, ChevronDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Command, CommandInput, CommandList, CommandEmpty, CommandGroup, CommandItem } from '@/components/ui/command';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
-import { Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerTrigger } from '@/components/ui/drawer';
+import { Dialog, DialogContent, DialogTrigger } from '@/components/ui/dialog';
+import { Drawer, DrawerContent, DrawerTrigger, DrawerHeader, DrawerTitle } from '@/components/ui/drawer';
 import { useMediaQuery } from '@/hooks/use-media-query';
 import { searchLocations, CANADIAN_CITIES, type Location } from '@/lib/weatherApi';
 import { cn } from '@/lib/utils';
@@ -101,23 +101,19 @@ export function LocationSearch({ currentLocation, onLocationSelect, disabled = f
       role="combobox"
       aria-expanded={isOpen}
       aria-label="Select a location"
-      className="glass-card border-white/10 hover:border-primary/50 transition-colors gap-2 h-12 px-4 w-64 justify-start">
+      className="group glass-card border-white/10 hover:border-primary/50 transition-colors gap-2 h-9 px-3 w-48 justify-start">
       <MapPin className="w-4 h-4 text-primary shrink-0" />
       <div className="flex-1 text-left min-w-0">
-        <p className="font-medium truncate">
+        <p className="font-medium truncate text-sm">
           {currentLocation?.name || 'Select Location'}
         </p>
-        {currentLocation?.province && (
-          <p className="text-foreground/80 text-sm truncate -mt-0.5">
-            {currentLocation.province}
-          </p>
-        )}
       </div>
+      <ChevronDown className="w-4 h-4 text-foreground/70 group-hover:text-foreground transition-colors" />
     </Button>
   );
 
   const LocationContent = (
-    <div className={cn('p-0', isDesktop ? 'w-[400px]' : 'h-[80vh]')}>
+    <div className={cn(isDesktop ? 'w-[400px]' : 'h-[80vh]')}>
       <Command shouldFilter={false} loop>
         <div className={cn('p-3 border-b border-white/10', isDesktop ? '' : 'sticky top-0 bg-background/95 backdrop-blur-xl z-10')}>
             <div className="relative">
