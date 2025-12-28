@@ -21,6 +21,7 @@ import {
 import { useWeather } from '@/hooks/useWeather';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { ConfidenceGauge } from '@/components/ConfidenceGauge';
+import { WeatherConfidenceCard } from '@/components/WeatherConfidenceCard';
 import { ModelCard } from '@/components/ModelCard';
 import { DailyForecast, ModelHourlyBreakdownPanel } from '@/components/DailyForecast';
 import { GraphsPanel } from '@/components/GraphsPanel';
@@ -157,6 +158,59 @@ export default function Home() {
   const weatherInfo = weatherCodeValue !== null
     ? WEATHER_CODES[weatherCodeValue] || { description: 'Unknown', icon: '❓' }
     : null;
+  const weatherConfidenceCardData = useMemo(() => {
+    if (!consensusAvailable || !currentConsensus) return null;
+    const formatUpdatedAt = () => {
+      if (!lastUpdated) return 'Unknown';
+      return lastUpdated.toLocaleTimeString('en-CA', {
+        hour: 'numeric',
+        minute: '2-digit',
+        timeZone: location?.timezone
+      });
+    };
+    const safeAgreement = (value: number | undefined) =>
+      Number.isFinite(value) ? Math.round(value) : 0;
+    const safeTemp = Number.isFinite(currentConsensus.temperature.mean)
+      ? currentConsensus.temperature.mean
+      : displayTemperatureValue ?? 0;
+    const safeOverall = Number.isFinite(currentConsensus.overallAgreement ?? NaN)
+      ? Math.round(currentConsensus.overallAgreement)
+      : 0;
+
+    return {
+      location: {
+        name: location?.name ?? 'Unknown',
+        region: [location?.province, location?.country].filter(Boolean).join(', ') || 'Unknown region'
+      },
+      current: {
+        temp: safeTemp,
+        condition: weatherInfo?.description ?? 'Unknown',
+        icon: weatherInfo?.icon ?? '❔'
+      },
+      overallConfidence: safeOverall,
+      freshness: freshnessScoreValue ?? null,
+      categories: {
+        temp: safeAgreement(currentConsensus.temperature.agreement),
+        precip: safeAgreement(currentConsensus.precipitation.agreement),
+        wind: safeAgreement(currentConsensus.windSpeed.agreement),
+        cloud: safeAgreement(currentConsensus.weatherCode.agreement)
+      },
+      modelCount: consensus?.modelCount ?? 0,
+      updatedAt: formatUpdatedAt()
+    };
+  }, [
+    consensus?.modelCount,
+    consensusAvailable,
+    currentConsensus,
+    displayTemperatureValue,
+    freshnessScoreValue,
+    lastUpdated,
+    location?.country,
+    location?.name,
+    location?.province,
+    location?.timezone,
+    weatherInfo
+  ]);
 
   const availabilityTimes = forecasts
     .filter(forecast => !forecast.error)
@@ -595,6 +649,17 @@ export default function Home() {
                 </div>
               </div>
             </motion.section>
+
+            {weatherConfidenceCardData && (
+              <motion.section
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.08 }}
+                className="mb-8"
+              >
+                <WeatherConfidenceCard {...weatherConfidenceCardData} />
+              </motion.section>
+            )}
 
             {/* Hourly chart */}
             <motion.section
