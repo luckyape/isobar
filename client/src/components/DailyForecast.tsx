@@ -527,7 +527,7 @@ export const ModelBreakdownPanel = memo(function ModelBreakdownPanel({
   );
 });
 
-export const ModelHourlyBreakdownPanel = memo(function ModelHourlyBreakdownPanel({
+const ModelHourlyBreakdownPanel = memo(function ModelHourlyBreakdownPanel({
   hour,
   forecasts,
   modelNames,
@@ -827,6 +827,8 @@ export const ModelHourlyBreakdownPanel = memo(function ModelHourlyBreakdownPanel
     </div>
   );
 });
+
+export { ModelHourlyBreakdownPanel };
 
 const DailyForecastRow = memo(function DailyForecastRow({
   day,
