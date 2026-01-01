@@ -6,6 +6,7 @@
 import { memo, useCallback, useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
 import { ChevronDownIcon, ArrowUp } from 'lucide-react';
+import { ModelCaretIcon } from '@/components/ModelCaretIcon';
 import {
   Drawer,
   DrawerClose,
@@ -42,6 +43,7 @@ import {
 
 interface DailyForecastProps {
   daily: DailyConsensus[];
+  hourly?: HourlyConsensus[];
   forecasts: ModelForecast[];
   showAgreement?: boolean;
   timezone?: string;
@@ -576,11 +578,18 @@ const ModelHourlyBreakdownPanel = memo(function ModelHourlyBreakdownPanel({
           runAvailabilityTime: null
         }];
       }
-      const currentHourIndex = findCurrentHourIndex(
-        forecast.hourly.map((entry) => entry.time),
-        timezone
-      );
-      const currentHour = forecast.hourly[currentHourIndex] || forecast.hourly[0];
+      let currentHour;
+      if (hour?.time) {
+        currentHour = forecast.hourly.find(h => h.time === hour.time);
+      }
+
+      if (!currentHour) {
+        const currentHourIndex = findCurrentHourIndex(
+          forecast.hourly.map((entry) => entry.time),
+          timezone
+        );
+        currentHour = forecast.hourly[currentHourIndex] || forecast.hourly[0];
+      }
       const runAvailabilityTime = Number.isFinite(forecast.runAvailabilityTime)
         ? (forecast.runAvailabilityTime as number)
         : null;
@@ -913,7 +922,179 @@ const ModelHourlyBreakdownPanel = memo(function ModelHourlyBreakdownPanel({
   );
 });
 
-export { ModelHourlyBreakdownPanel };
+const HourlyForecastRow = memo(function HourlyForecastRow({
+  hour,
+  hourIndex,
+  displayTime,
+  isActive,
+  isMobile,
+  hasModelData,
+  forecasts,
+  timezone,
+  onToggle
+}: {
+  hour: HourlyConsensus;
+  hourIndex: number;
+  displayTime: string;
+  isActive: boolean;
+  isMobile: boolean;
+  hasModelData: boolean;
+  forecasts: ModelForecast[];
+  timezone?: string;
+  onToggle: (time: string) => void;
+}) {
+  const weatherInfo = WEATHER_CODES[hour.weatherCode.dominant] || { description: 'Unknown', icon: '❓' };
+  const agreementScore = Number.isFinite(hour.overallAgreement) ? hour.overallAgreement : 0;
+  const borderClass = getAgreementBorder(agreementScore);
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, x: -20 }}
+      animate={{ opacity: 1, x: 0 }}
+      transition={{ delay: hourIndex * 0.05 }}
+      className={`p-3 rounded-lg border ${borderClass} bg-white/[0.02] hover:bg-white/[0.04] transition-colors sm:flex sm:flex-wrap sm:items-start sm:gap-4 sm:gap-y-3`}
+    >
+      <div className="flex items-center gap-3 sm:gap-4 min-w-0">
+        {/* Time */}
+        <div className="w-16 shrink-0 sm:w-20">
+          <p className="font-medium truncate">{displayTime}</p>
+        </div>
+
+        {/* Weather icon */}
+        <div className="w-10 shrink-0 text-center text-xl sm:w-12">
+          {weatherInfo.icon}
+        </div>
+
+        {/* Temperature */}
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2">
+            <span className="font-mono font-semibold text-lg">
+              {Math.round(hour.temperature.mean)}°
+            </span>
+          </div>
+          <p className="text-xs text-foreground/80 truncate">
+            {weatherInfo.description}
+          </p>
+        </div>
+      </div>
+
+      {/* Secondary stats */}
+      <div className="mt-3 flex items-center justify-between gap-3 sm:mt-0 sm:ml-auto sm:justify-end sm:gap-6">
+        {/* Precipitation */}
+        <div className="text-left sm:w-16 sm:text-center">
+          <p className="font-mono text-sm whitespace-nowrap">
+            {Math.round(hour.precipitationProbability.mean)}%
+          </p>
+          <p className="text-xs text-foreground/80">Precip</p>
+        </div>
+
+        {/* Wind */}
+        <div className="hidden sm:block w-20 text-center">
+          <p className="font-mono text-sm whitespace-nowrap">
+            {Math.round(hour.windSpeed.mean)} km/h
+          </p>
+          <p className="text-xs text-foreground/80">Wind</p>
+        </div>
+
+        {/* Agreement indicator */}
+        <div className="text-right sm:w-20">
+          <div className="flex items-center justify-end gap-2">
+            <div className={`w-2 h-2 rotate-45 ${getAgreementColor(agreementScore)}`} />
+            <span className="font-mono text-sm whitespace-nowrap">{Math.round(agreementScore)}%</span>
+          </div>
+          <p className="text-xs text-foreground/80">Agreement</p>
+        </div>
+
+        {hasModelData && (
+          <div className="text-right sm:w-20">
+            <button
+              type="button"
+              onClick={() => onToggle(hour.time)}
+              className="inline-flex items-center gap-1 text-xs text-foreground/70 hover:text-foreground"
+              aria-expanded={isActive}
+              aria-controls={`hourly-breakdown-${hour.time}`}
+            >
+              <ModelCaretIcon
+                color="currentColor"
+                className={cn(
+                  'transition-transform origin-center',
+                  isActive && 'rotate-90'
+                )}
+              />
+            </button>
+          </div>
+        )}
+      </div>
+
+      {isActive && !isMobile && (
+        <motion.div
+          id={`hourly-breakdown-${hour.time}`}
+          initial={{ opacity: 0, y: -6 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.2 }}
+          className="mt-3 w-full"
+        >
+          <ModelHourlyBreakdownPanel
+            hour={hour}
+            forecasts={forecasts}
+            timezone={timezone}
+          />
+        </motion.div>
+      )}
+    </motion.div>
+  );
+});
+
+const HourlyForecastView = memo(function HourlyForecastView({
+  hourly,
+  forecasts,
+  timezone,
+  isMobile,
+  onToggle,
+  expandedTime
+}: {
+  hourly: HourlyConsensus[];
+  forecasts: ModelForecast[];
+  timezone?: string;
+  isMobile: boolean;
+  onToggle: (time: string) => void;
+  expandedTime: string | null;
+}) {
+  const hasModelData = forecasts.length > 0;
+  // Show next 24 hours
+  const displayHours = hourly.slice(0, 24);
+
+  return (
+    <div className="space-y-3">
+      {displayHours.map((hour, index) => {
+        const date = new Date(hour.time);
+        const displayTime = new Intl.DateTimeFormat('en-CA', {
+          hour: 'numeric',
+          minute: '2-digit',
+          timeZone: timezone
+        }).format(date);
+
+        const isActive = expandedTime === hour.time;
+
+        return (
+          <HourlyForecastRow
+            key={hour.time}
+            hour={hour}
+            hourIndex={index}
+            displayTime={displayTime}
+            isActive={isActive}
+            isMobile={isMobile}
+            hasModelData={hasModelData}
+            forecasts={forecasts}
+            timezone={timezone}
+            onToggle={onToggle}
+          />
+        );
+      })}
+    </div>
+  );
+});
+
 
 const DailyForecastRow = memo(function DailyForecastRow({
   day,
@@ -1015,12 +1196,11 @@ const DailyForecastRow = memo(function DailyForecastRow({
               aria-expanded={isActive}
               aria-controls={`model-breakdown-${day.date}`}
             >
-              <span className="hidden sm:inline">Models</span>
-              <span className="sm:hidden">4 models</span>
-              <ChevronDownIcon
+              <ModelCaretIcon
+                color="currentColor"
                 className={cn(
-                  'h-3 w-3 transition-transform',
-                  isActive && 'rotate-180'
+                  'transition-transform origin-center',
+                  isActive && 'rotate-90'
                 )}
               />
             </button>
@@ -1050,13 +1230,17 @@ const DailyForecastRow = memo(function DailyForecastRow({
 
 export function DailyForecast({
   daily,
+  hourly,
   forecasts,
   showAgreement = true,
   timezone
 }: DailyForecastProps) {
+  const [activeTab, setActiveTab] = useState<'daily' | 'hourly'>('daily');
   const [expandedDate, setExpandedDate] = useState<string | null>(null);
+  const [expandedTime, setExpandedTime] = useState<string | null>(null);
   const isMobile = useMediaQuery('(max-width: 639px)');
   const hasModelData = forecasts.length > 0;
+
   const formatDate = (dateStr: string) => {
     const dateParts = parseOpenMeteoDate(dateStr);
     if (!dateParts) return dateStr;
@@ -1077,45 +1261,97 @@ export function DailyForecast({
     return formatCalendarDate(dateParts);
   };
 
-  const handleToggle = useCallback((date: string) => {
+  const handleDateToggle = useCallback((date: string) => {
     setExpandedDate((prev) => (prev === date ? null : date));
+  }, []);
+
+  const handleTimeToggle = useCallback((time: string) => {
+    setExpandedTime((prev) => (prev === time ? null : time));
   }, []);
 
   const expandedIndex = useMemo(() => (
     expandedDate ? daily.findIndex((day) => day.date === expandedDate) : -1
   ), [daily, expandedDate]);
+
   const expandedDay = expandedIndex >= 0 ? daily[expandedIndex] : null;
+
+  const expandedHour = useMemo(() => (
+    expandedTime && hourly ? hourly.find((h) => h.time === expandedTime) : null
+  ), [hourly, expandedTime]);
 
   return (
     <div className="glass-card p-4 sm:p-6 readable-text">
-      <h2 className="text-xl font-semibold mb-4">7-Day Forecast</h2>
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-xl font-semibold">Forecast</h2>
 
-      <div className="space-y-3">
-        {daily.map((day, index) => {
-          const displayDate = formatDate(day.date);
-          const isActive = expandedDate === day.date;
-          const isExpanded = !isMobile && isActive;
-
-          return (
-            <DailyForecastRow
-              key={day.date}
-              day={day}
-              dayIndex={index}
-              displayDate={displayDate}
-              showAgreement={showAgreement}
-              isExpanded={isExpanded}
-              isActive={isActive}
-              isMobile={isMobile}
-              hasModelData={hasModelData}
-              forecasts={forecasts}
-              timezone={timezone}
-              onToggle={handleToggle}
-            />
-          );
-        })}
+        <div className="flex p-1 bg-white/[0.04] rounded-lg">
+          <button
+            onClick={() => setActiveTab('daily')}
+            className={cn(
+              "px-3 py-1 text-xs font-medium rounded-md transition-all",
+              activeTab === 'daily'
+                ? "bg-white/10 text-foreground shadow-sm"
+                : "text-foreground/60 hover:text-foreground/80"
+            )}
+          >
+            7-Day
+          </button>
+          <button
+            onClick={() => setActiveTab('hourly')}
+            disabled={!hourly || hourly.length === 0}
+            className={cn(
+              "px-3 py-1 text-xs font-medium rounded-md transition-all",
+              activeTab === 'hourly'
+                ? "bg-white/10 text-foreground shadow-sm"
+                : "text-foreground/60 hover:text-foreground/80",
+              (!hourly || hourly.length === 0) && "opacity-50 cursor-not-allowed"
+            )}
+          >
+            Hourly
+          </button>
+        </div>
       </div>
 
-      {isMobile && expandedDay && (
+      {activeTab === 'daily' ? (
+        <div className="space-y-3">
+          {daily.map((day, index) => {
+            const displayDate = formatDate(day.date);
+            const isActive = expandedDate === day.date;
+            const isExpanded = !isMobile && isActive;
+
+            return (
+              <DailyForecastRow
+                key={day.date}
+                day={day}
+                dayIndex={index}
+                displayDate={displayDate}
+                showAgreement={showAgreement}
+                isExpanded={isExpanded}
+                isActive={isActive}
+                isMobile={isMobile}
+                hasModelData={hasModelData}
+                forecasts={forecasts}
+                timezone={timezone}
+                onToggle={handleDateToggle}
+              />
+            );
+          })}
+        </div>
+      ) : (
+        hourly && (
+          <HourlyForecastView
+            hourly={hourly}
+            forecasts={forecasts}
+            timezone={timezone}
+            isMobile={isMobile}
+            onToggle={handleTimeToggle}
+            expandedTime={expandedTime}
+          />
+        )
+      )}
+
+      {/* Mobile Drawers */}
+      {isMobile && expandedDay && activeTab === 'daily' && (
         <Drawer
           open={Boolean(expandedDay)}
           onOpenChange={(open) => {
@@ -1152,8 +1388,51 @@ export function DailyForecast({
         </Drawer>
       )}
 
+      {isMobile && expandedHour && activeTab === 'hourly' && (
+        <Drawer
+          open={Boolean(expandedHour)}
+          onOpenChange={(open) => {
+            if (!open) setExpandedTime(null);
+          }}
+        >
+          <DrawerContent className="glass-card border border-white/10 text-foreground/90">
+            <DrawerHeader className="pb-2">
+              <div className="flex items-center justify-between">
+                <div>
+                  <DrawerTitle className="text-base">Hourly Breakdown</DrawerTitle>
+                  <DrawerDescription className="text-foreground/70 text-xs">
+                    {new Intl.DateTimeFormat('en-CA', {
+                      hour: 'numeric',
+                      minute: '2-digit',
+                      timeZone: timezone,
+                      weekday: 'short',
+                      month: 'short',
+                      day: 'numeric'
+                    }).format(new Date(expandedHour.time))}
+                  </DrawerDescription>
+                </div>
+                <DrawerClose asChild>
+                  <button
+                    type="button"
+                    className="text-xs text-foreground/70 hover:text-foreground underline underline-offset-2"
+                  >
+                    Close
+                  </button>
+                </DrawerClose>
+              </div>
+            </DrawerHeader>
+            <ModelHourlyBreakdownPanel
+              hour={expandedHour}
+              forecasts={forecasts}
+              timezone={timezone}
+              className="mx-4 mb-4"
+            />
+          </DrawerContent>
+        </Drawer>
+      )}
+
       {/* Legend */}
-      {showAgreement && (
+      {showAgreement && activeTab === 'daily' && (
         <div className="flex flex-wrap items-center justify-start sm:justify-end gap-4 mt-4 pt-4 border-t border-white/10">
           <div className="flex items-center gap-2">
             <div className="w-2 h-2 rotate-45 bg-[oklch(0.72_0.19_160)]" />

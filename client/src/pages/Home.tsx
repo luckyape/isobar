@@ -26,7 +26,7 @@ import {
   type CategoryDetailKey
 } from '@/components/CategoryDetailPanel';
 import { ModelForecastDetailPanel } from '@/components/ModelForecastDetailPanel';
-import { DailyForecast, ModelHourlyBreakdownPanel, type BreakdownLens } from '@/components/DailyForecast';
+import { DailyForecast, type BreakdownLens } from '@/components/DailyForecast';
 import { GraphsPanel } from '@/components/GraphsPanel';
 import { WEATHER_CODES } from '@/lib/weatherApi';
 import { findCurrentHourIndex, formatHourLabel, parseOpenMeteoDateTime } from '@/lib/timeUtils';
@@ -788,6 +788,7 @@ export default function Home() {
             >
               <DailyForecast
                 daily={dailyForDisplay}
+                hourly={consensusAvailable ? consensus?.hourly : undefined}
                 forecasts={forecasts}
                 showAgreement={consensusAvailable}
                 timezone={location?.timezone}
