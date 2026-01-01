@@ -66,11 +66,25 @@ export default function Home() {
   const isDrawerOpen = activeDrawerTab !== null;
   const activeCategory = activeDrawerTab && activeDrawerTab !== 'overall' ? activeDrawerTab as CategoryDetailKey : null;
 
-  // Sync carousel slide selection with activeDrawerTab (uses 'settle' to avoid mid-animation interruption)
+  // Memoize carousel options to prevent re-initialization on every render
+  const [initialIndex] = useState(() => {
+    const idx = DRAWER_TABS.findIndex(t => t.key === activeDrawerTab);
+    return idx >= 0 ? idx : 0;
+  });
+
+  const carouselOptions = useMemo(() => ({
+    startIndex: initialIndex,
+    loop: false,
+    dragFree: false,
+    containScroll: 'trimSnaps' as const,
+    align: 'start' as const,
+  }), [initialIndex]);
+
+  // Sync carousel slide selection with activeDrawerTab
   useEffect(() => {
     if (!carouselApi) return;
 
-    const onSettle = () => {
+    const onSelect = () => {
       const index = carouselApi.selectedScrollSnap();
       const tab = DRAWER_TABS[index];
       if (tab && tab.key !== activeDrawerTab) {
@@ -78,9 +92,9 @@ export default function Home() {
       }
     };
 
-    carouselApi.on('settle', onSettle);
+    carouselApi.on('select', onSelect);
     return () => {
-      carouselApi.off('settle', onSettle);
+      carouselApi.off('select', onSelect);
     };
   }, [carouselApi, activeDrawerTab]);
 
@@ -411,7 +425,7 @@ export default function Home() {
               animate={{ opacity: 1, y: 0 }}
               className="mb-8"
             >
-              <div className="glass-card p-6 sm:p-8 aurora-glow readable-text">
+              <div className="glass-card overflow-hidden p-6 sm:p-8 aurora-glow readable-text">
                 <div className="flex flex-col gap-6">
                   <div className="grid gap-6 lg:grid-cols-[1.1fr_1fr] lg:items-start">
                     {/* Location and current weather */}
@@ -481,7 +495,7 @@ export default function Home() {
                               </DrawerClose>
                             </div>
                           </DrawerHeader>
-                          {/* Tab Indicators (clickable) */}
+                          {/* Tab Indicators with sliding pill */}
                           <div className="mx-4 mt-2 mb-4 grid grid-cols-5 gap-1 p-1 rounded-lg bg-white/[0.04]">
                             {DRAWER_TABS.map((tab) => {
                               const Icon = tab.icon;
@@ -491,17 +505,19 @@ export default function Home() {
                                   key={tab.key}
                                   type="button"
                                   onClick={() => setActiveDrawerTab(tab.key)}
-                                  className={`
-                                    flex items-center justify-center gap-1 py-2 rounded-md
-                                    text-[11px] font-medium transition-all duration-200
-                                    ${isActive
-                                      ? 'bg-white/10 text-foreground shadow-sm'
-                                      : 'text-foreground/50 hover:text-foreground/80'
-                                    }
-                                  `}
+                                  className="relative flex items-center justify-center gap-1 py-2 rounded-md text-[11px] font-medium transition-colors duration-200"
                                   aria-pressed={isActive}
                                 >
-                                  {Icon ? <Icon className="h-4 w-4" /> : <span className="text-xs">{tab.shortLabel}</span>}
+                                  {isActive && (
+                                    <motion.div
+                                      layoutId="mobile-tab-indicator"
+                                      className="absolute inset-0 bg-white/10 rounded-md shadow-sm"
+                                      transition={{ type: 'spring', stiffness: 400, damping: 30 }}
+                                    />
+                                  )}
+                                  <span className={`relative z-10 ${isActive ? 'text-foreground' : 'text-foreground/50 hover:text-foreground/80'}`}>
+                                    {Icon ? <Icon className="h-4 w-4" /> : <span className="text-xs">{tab.shortLabel}</span>}
+                                  </span>
                                 </button>
                               );
                             })}
@@ -510,13 +526,7 @@ export default function Home() {
                           {/* Swipeable Carousel */}
                           <Carousel
                             setApi={setCarouselApi}
-                            opts={{
-                              startIndex: DRAWER_TABS.findIndex(t => t.key === activeDrawerTab),
-                              loop: false,
-                              dragFree: false,
-                              containScroll: 'trimSnaps',
-                              align: 'start',
-                            }}
+                            opts={carouselOptions}
                             className="flex-1 w-full"
                           >
                             <CarouselContent className="ml-0 h-full">
@@ -577,7 +587,7 @@ export default function Home() {
                       exit={{ opacity: 0, y: -8 }}
                       className="pt-4"
                     >
-                      {/* Desktop Tab Bar */}
+                      {/* Desktop Tab Bar with sliding pill */}
                       <div className="mb-4 p-1 rounded-lg bg-white/[0.04] flex items-center">
                         <div className="flex-1 grid grid-cols-5 gap-1">
                           {DRAWER_TABS.map((tab) => {
@@ -588,18 +598,20 @@ export default function Home() {
                                 key={tab.key}
                                 type="button"
                                 onClick={() => setActiveDrawerTab(tab.key)}
-                                className={`
-                                  flex items-center justify-center gap-1.5 py-2 rounded-md text-xs font-medium
-                                  transition-all duration-200 ease-out
-                                  ${isActive
-                                    ? 'bg-white/10 text-foreground shadow-sm'
-                                    : 'text-foreground/60 hover:text-foreground hover:bg-white/[0.04]'
-                                  }
-                                `}
+                                className="relative flex items-center justify-center gap-1.5 py-2 rounded-md text-xs font-medium transition-colors duration-200"
                                 aria-pressed={isActive}
                               >
-                                {Icon && <Icon className="h-3.5 w-3.5" />}
-                                <span>{tab.label}</span>
+                                {isActive && (
+                                  <motion.div
+                                    layoutId="desktop-tab-indicator"
+                                    className="absolute inset-0 bg-white/10 rounded-md shadow-sm"
+                                    transition={{ type: 'spring', stiffness: 400, damping: 30 }}
+                                  />
+                                )}
+                                <span className={`relative z-10 flex items-center gap-1.5 ${isActive ? 'text-foreground' : 'text-foreground/60 hover:text-foreground'}`}>
+                                  {Icon && <Icon className="h-3.5 w-3.5" />}
+                                  <span>{tab.label}</span>
+                                </span>
                               </button>
                             );
                           })}
@@ -614,21 +626,15 @@ export default function Home() {
                       </div>
 
                       {/* Swipeable Carousel - Desktop */}
-                      <div className="w-full overflow-hidden -m-4 p-4">
+                      <div className="w-full  -m-4 p-4">
                         <Carousel
                           setApi={setCarouselApi}
-                          opts={{
-                            startIndex: DRAWER_TABS.findIndex(t => t.key === activeDrawerTab),
-                            loop: false,
-                            dragFree: false,
-                            containScroll: 'trimSnaps',
-                            align: 'start',
-                          }}
+                          opts={carouselOptions}
                           className="w-full"
                         >
                           <CarouselContent className="ml-0">
                             {DRAWER_TABS.map((tab) => (
-                              <CarouselItem key={tab.key} className="pl-0 basis-full">
+                              <CarouselItem key={tab.key} className="pl-6 basis-full">
                                 {tab.key === 'overall' ? (
                                   <ModelForecastDetailPanel
                                     forecasts={forecasts}

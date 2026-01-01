@@ -168,7 +168,8 @@ export function CategoryDetailPanel({
             </span>
           ) : null;
           const cardClassName = cn(
-            'relative rounded-lg sm:rounded-xl border border-white/10 bg-white/[0.02] p-2.5 sm:p-4 text-foreground/90 flex flex-col gap-2 sm:gap-3'
+            'relative rounded-lg sm:rounded-xl border border-white/10 bg-white/[0.02] p-2.5 sm:p-4 text-foreground/90 flex flex-col gap-2 sm:gap-3',
+            'min-h-[7rem] sm:min-h-[8rem]'
           );
           const displayClassName = cn('mt-1.5 sm:mt-3 items-start text-left');
           const canOpen = Boolean(entry.hour);

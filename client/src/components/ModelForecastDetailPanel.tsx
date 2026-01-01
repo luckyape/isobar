@@ -92,7 +92,7 @@ export function ModelForecastDetailPanel({
         return (
           <div
             key={entry.name}
-            className="rounded-lg sm:rounded-xl border border-white/10 bg-white/[0.02] p-2.5 sm:p-4 text-foreground/90"
+            className="rounded-lg sm:rounded-xl border border-white/10 bg-white/[0.02] p-2.5 sm:p-4 text-foreground/90 min-h-[7rem] sm:min-h-[8rem] flex flex-col"
             style={cardStyle}
           >
             <div className="flex items-center gap-2 text-[9px] sm:text-[10px] font-semibold uppercase tracking-[0.16em] text-foreground/70">
@@ -106,7 +106,7 @@ export function ModelForecastDetailPanel({
               temperature={temp}
               icon={weatherInfo?.icon ?? '—'}
               description={weatherInfo?.description ?? '—'}
-              className="mt-1.5 sm:mt-3"
+              className="mt-1.5 sm:mt-3 flex-1"
             />
           </div>
         );
