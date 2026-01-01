@@ -12,6 +12,8 @@ import {
   DrawerHeader,
   DrawerTitle
 } from '@/components/ui/drawer';
+import { Carousel, CarouselContent, CarouselItem, type CarouselApi } from '@/components/ui/carousel';
+import { Cloud, Droplets, Thermometer, Wind } from 'lucide-react';
 import { useWeather } from '@/hooks/useWeather';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { DualRingGauge } from '@/components/DualRingGauge';
@@ -29,6 +31,16 @@ import { GraphsPanel } from '@/components/GraphsPanel';
 import { WEATHER_CODES } from '@/lib/weatherApi';
 import { findCurrentHourIndex, formatHourLabel, parseOpenMeteoDateTime } from '@/lib/timeUtils';
 
+// Unified drawer tab configuration
+const DRAWER_TABS = [
+  { key: 'overall', label: 'Overall', shortLabel: 'All', icon: null },
+  { key: 'temperature', label: 'Temperature', shortLabel: 'Temp', icon: Thermometer },
+  { key: 'precipitation', label: 'Precipitation', shortLabel: 'Precip', icon: Droplets },
+  { key: 'wind', label: 'Wind', shortLabel: 'Wind', icon: Wind },
+  { key: 'conditions', label: 'Conditions', shortLabel: 'Cond', icon: Cloud }
+] as const;
+type DrawerTabKey = typeof DRAWER_TABS[number]['key'];
+
 export default function Home() {
   const {
     location,
@@ -45,15 +57,41 @@ export default function Home() {
   } = useWeather();
   const [showModelList, setShowModelList] = useState(false);
   const [visibleLines, setVisibleLines] = useState<Record<string, boolean>>({});
-  const [heroPane, setHeroPane] = useState<'models' | 'breakdown' | 'category' | null>(null);
-  const [heroCategory, setHeroCategory] = useState<CategoryDetailKey | null>(null);
+  const [activeDrawerTab, setActiveDrawerTab] = useState<DrawerTabKey | null>(null);
   const [breakdownLens, setBreakdownLens] = useState<BreakdownLens>('agreement');
   const [breakdownCategory, setBreakdownCategory] = useState<string | null>(null);
+  const [carouselApi, setCarouselApi] = useState<CarouselApi>();
   const hasInitializedModels = useRef(false);
   const isHeroMobile = useMediaQuery('(max-width: 639px)');
-  const isHeroModelsOpen = heroPane === 'models';
-  const isHeroBreakdownOpen = heroPane === 'breakdown';
-  const isHeroCategoryOpen = heroPane === 'category';
+  const isDrawerOpen = activeDrawerTab !== null;
+  const activeCategory = activeDrawerTab && activeDrawerTab !== 'overall' ? activeDrawerTab as CategoryDetailKey : null;
+
+  // Sync carousel slide selection with activeDrawerTab (uses 'settle' to avoid mid-animation interruption)
+  useEffect(() => {
+    if (!carouselApi) return;
+
+    const onSettle = () => {
+      const index = carouselApi.selectedScrollSnap();
+      const tab = DRAWER_TABS[index];
+      if (tab && tab.key !== activeDrawerTab) {
+        setActiveDrawerTab(tab.key);
+      }
+    };
+
+    carouselApi.on('settle', onSettle);
+    return () => {
+      carouselApi.off('settle', onSettle);
+    };
+  }, [carouselApi, activeDrawerTab]);
+
+  // Scroll carousel when tab state changes externally (gauge tap or tab click)
+  useEffect(() => {
+    if (!carouselApi || !activeDrawerTab) return;
+    const targetIndex = DRAWER_TABS.findIndex(t => t.key === activeDrawerTab);
+    if (targetIndex >= 0 && carouselApi.selectedScrollSnap() !== targetIndex) {
+      carouselApi.scrollTo(targetIndex);
+    }
+  }, [carouselApi, activeDrawerTab]);
 
   useEffect(() => {
     if (forecasts.length > 0 && !hasInitializedModels.current) {
@@ -90,8 +128,7 @@ export default function Home() {
   }, [forecasts]);
 
   useEffect(() => {
-    setHeroPane(null);
-    setHeroCategory(null);
+    setActiveDrawerTab(null);
   }, [location?.latitude, location?.longitude]);
 
   const toggleLineVisibility = (lineName: string) => {
@@ -302,10 +339,7 @@ export default function Home() {
   const dailyForDisplay = consensusAvailable ? (consensus?.daily ?? []) : fallbackDaily;
   const showHeroModels = forecasts.some((forecast) => forecast.hourly.length > 0);
   const heroModelNames = consensusAvailable ? consensus?.successfulModels : undefined;
-  const heroModelDetailsId = isHeroMobile ? 'hero-model-details-drawer' : 'hero-model-details';
-  const heroModelBreakdownId = isHeroMobile ? 'hero-model-breakdown-drawer' : 'hero-model-breakdown';
-  const heroCategoryDetailsId = isHeroMobile ? 'hero-category-details-drawer' : 'hero-category-details';
-  const heroCategoryMeta = heroCategory ? CATEGORY_DETAIL_META[heroCategory] : null;
+
   const heroHourLabel = useMemo(() => {
     const timeValue = currentConsensus?.time ?? currentForecastHour?.time;
     if (!timeValue) return 'This hour';
@@ -314,38 +348,6 @@ export default function Home() {
     const formatted = formatHourLabel(parts);
     return formatted ? `This hour (${formatted})` : 'This hour';
   }, [currentConsensus?.time, currentForecastHour?.time]);
-
-  const toggleHeroModels = () => {
-    setHeroPane((prev) => (prev === 'models' ? null : 'models'));
-    setHeroCategory(null);
-  };
-
-  const toggleHeroBreakdown = () => {
-    setHeroPane((prev) => {
-      const next = prev === 'breakdown' ? null : 'breakdown';
-      if (next === 'breakdown') {
-        setBreakdownLens('agreement');
-        setBreakdownCategory(null);
-      }
-      return next;
-    });
-    setHeroCategory(null);
-  };
-
-  const openHeroBreakdown = (category: string | null = null) => {
-    setBreakdownLens('agreement');
-    setBreakdownCategory(category);
-    setHeroPane('breakdown');
-    setHeroCategory(null);
-  };
-
-  const openHeroCategory = (category: CategoryDetailKey) => {
-    setHeroCategory((prev) => {
-      const next = prev === category ? null : category;
-      setHeroPane(next ? 'category' : null);
-      return next;
-    });
-  };
 
   return (
     <div className="min-h-screen relative overflow-hidden">
@@ -421,15 +423,15 @@ export default function Home() {
                         {showHeroModels && (
                           <button
                             type="button"
-                            onClick={toggleHeroBreakdown}
+                            onClick={() => setActiveDrawerTab(prev => prev === 'overall' ? null : 'overall')}
                             className="inline-flex items-center rounded-full transition-opacity hover:opacity-80 focus-visible:ring-2 focus-visible:ring-white/30"
-                            aria-expanded={isHeroBreakdownOpen}
-                            aria-controls={heroModelBreakdownId}
+                            aria-expanded={activeDrawerTab === 'overall'}
+                            aria-controls="desktop-carousel-panel"
                             aria-label="View model breakdown"
                           >
                             <span aria-hidden="true">
                               <ModelBadgeIcon
-                                className={`transition-opacity ${isHeroBreakdownOpen ? 'opacity-100' : 'opacity-70'}`}
+                                className={`transition-opacity ${activeDrawerTab === 'overall' ? 'opacity-100' : 'opacity-70'}`}
                               />
                             </span>
                           </button>
@@ -451,92 +453,93 @@ export default function Home() {
                             : 'Consensus unavailable'}
                         </Badge>
                       )}
-                      {showHeroModels && isHeroBreakdownOpen && !isHeroMobile && (
-                        <div id={heroModelBreakdownId} className="mt-4">
-                          <ModelHourlyBreakdownPanel
-                            hour={currentConsensus}
-                            forecasts={forecasts}
-                            modelNames={heroModelNames}
-                            timezone={location?.timezone}
-                            lens={breakdownLens}
-                            onLensChange={setBreakdownLens}
-                            focusedCategory={breakdownCategory}
-                          />
-                        </div>
-                      )}
+
                     </div>
 
                     {showHeroModels && isHeroMobile && (
                       <Drawer
-                        open={heroPane !== null}
-                        onOpenChange={(open) => {
-                          if (!open) {
-                            setHeroPane(null);
-                            setHeroCategory(null);
-                          }
-                        }}
+                        open={isDrawerOpen}
+                        onOpenChange={(open) => !open && setActiveDrawerTab(null)}
                       >
                         <DrawerContent className="glass-card border border-white/10 text-foreground/90 overflow-hidden data-[vaul-drawer-direction=bottom]:mt-12 data-[vaul-drawer-direction=bottom]:max-h-[92vh] [&>div:first-child]:hidden">
                           <DrawerHeader className="px-4 pb-2 pt-2">
                             <div className="flex items-center justify-between">
                               <div>
-                                <DrawerTitle className={heroPane === 'models' ? 'sr-only' : 'text-base'}>
-                                  {heroPane === 'category'
-                                    ? (heroCategoryMeta?.label ?? 'Model Details')
-                                    : heroPane === 'breakdown'
-                                      ? 'Model Breakdown'
-                                      : 'Individual model forecasts'}
-                                </DrawerTitle>
-                                {(heroPane === 'breakdown' || heroPane === 'category') && (
-                                  <DrawerDescription className="text-foreground/70 text-xs">
-                                    {heroHourLabel}
-                                  </DrawerDescription>
-                                )}
+                                <DrawerTitle className="sr-only">Forecast Details</DrawerTitle>
+                                <DrawerDescription className="text-foreground/70 text-xs">
+                                  {heroHourLabel}
+                                </DrawerDescription>
                               </div>
                               <DrawerClose asChild>
                                 <button
                                   type="button"
                                   className="text-[11px] text-foreground/70 hover:text-foreground underline underline-offset-2"
+                                  onClick={() => setActiveDrawerTab(null)}
                                 >
                                   Close
                                 </button>
                               </DrawerClose>
                             </div>
                           </DrawerHeader>
-                          <div className="flex-1 overflow-y-auto px-4 pb-4">
-                            {heroPane === 'breakdown' && (
-                              <div id={heroModelBreakdownId}>
-                                <ModelHourlyBreakdownPanel
-                                  hour={currentConsensus}
-                                  forecasts={forecasts}
-                                  modelNames={heroModelNames}
-                                  timezone={location?.timezone}
-                                  lens={breakdownLens}
-                                  onLensChange={setBreakdownLens}
-                                  focusedCategory={breakdownCategory}
-                                />
-                              </div>
-                            )}
-                            {heroPane === 'models' && (
-                              <div id={heroModelDetailsId}>
-                                <ModelForecastDetailPanel
-                                  forecasts={forecasts}
-                                  modelNames={heroModelNames}
-                                  timezone={location?.timezone}
-                                />
-                              </div>
-                            )}
-                            {heroPane === 'category' && heroCategory && (
-                              <div id={heroCategoryDetailsId}>
-                                <CategoryDetailPanel
-                                  category={heroCategory}
-                                  forecasts={forecasts}
-                                  modelNames={heroModelNames}
-                                  timezone={location?.timezone}
-                                />
-                              </div>
-                            )}
+                          {/* Tab Indicators (clickable) */}
+                          <div className="mx-4 mt-2 mb-4 grid grid-cols-5 gap-1 p-1 rounded-lg bg-white/[0.04]">
+                            {DRAWER_TABS.map((tab) => {
+                              const Icon = tab.icon;
+                              const isActive = activeDrawerTab === tab.key;
+                              return (
+                                <button
+                                  key={tab.key}
+                                  type="button"
+                                  onClick={() => setActiveDrawerTab(tab.key)}
+                                  className={`
+                                    flex items-center justify-center gap-1 py-2 rounded-md
+                                    text-[11px] font-medium transition-all duration-200
+                                    ${isActive
+                                      ? 'bg-white/10 text-foreground shadow-sm'
+                                      : 'text-foreground/50 hover:text-foreground/80'
+                                    }
+                                  `}
+                                  aria-pressed={isActive}
+                                >
+                                  {Icon ? <Icon className="h-4 w-4" /> : <span className="text-xs">{tab.shortLabel}</span>}
+                                </button>
+                              );
+                            })}
                           </div>
+
+                          {/* Swipeable Carousel */}
+                          <Carousel
+                            setApi={setCarouselApi}
+                            opts={{
+                              startIndex: DRAWER_TABS.findIndex(t => t.key === activeDrawerTab),
+                              loop: false,
+                              dragFree: false,
+                              containScroll: 'trimSnaps',
+                              align: 'start',
+                            }}
+                            className="flex-1 w-full"
+                          >
+                            <CarouselContent className="ml-0 h-full">
+                              {DRAWER_TABS.map((tab) => (
+                                <CarouselItem key={tab.key} className="pl-0 h-full overflow-y-auto px-4 pb-4">
+                                  {tab.key === 'overall' ? (
+                                    <ModelForecastDetailPanel
+                                      forecasts={forecasts}
+                                      modelNames={heroModelNames}
+                                      timezone={location?.timezone}
+                                    />
+                                  ) : (
+                                    <CategoryDetailPanel
+                                      category={tab.key as CategoryDetailKey}
+                                      forecasts={forecasts}
+                                      modelNames={heroModelNames}
+                                      timezone={location?.timezone}
+                                    />
+                                  )}
+                                </CarouselItem>
+                              ))}
+                            </CarouselContent>
+                          </Carousel>
                         </DrawerContent>
                       </Drawer>
                     )}
@@ -553,55 +556,98 @@ export default function Home() {
                           icon: weatherInfo.icon,
                           description: weatherInfo.description
                         } : undefined}
-                        onOverallTap={showHeroModels ? () => openHeroBreakdown(null) : undefined}
-                        onCategoryTap={showHeroModels ? (category: string) => openHeroCategory(category as CategoryDetailKey) : undefined}
-                        onModelDetailsToggle={showHeroModels ? toggleHeroModels : undefined}
-                        modelDetailsOpen={isHeroModelsOpen}
-                        modelDetailsControlsId={heroModelDetailsId}
+                        onOverallTap={showHeroModels ? () => setActiveDrawerTab('overall') : undefined}
+                        onCategoryTap={showHeroModels ? (category: string) => setActiveDrawerTab(category as DrawerTabKey) : undefined}
+                        onModelDetailsToggle={showHeroModels ? () => setActiveDrawerTab(prev => prev === 'overall' ? null : 'overall') : undefined}
+                        modelDetailsOpen={activeDrawerTab === 'overall'}
+                        modelDetailsControlsId="desktop-carousel-panel"
                         modelDetailsLabel="Show individual model forecasts"
-                        activeCategoryKey={isHeroCategoryOpen ? heroCategory : null}
+                        activeCategoryKey={activeCategory}
                       />
                     </div>
                   </div>
 
-                  {showHeroModels && isHeroModelsOpen && !isHeroMobile && (
+                  {showHeroModels && activeDrawerTab && !isHeroMobile && (
                     <motion.div
-                      id={heroModelDetailsId}
+                      id="desktop-carousel-panel"
                       role="region"
-                      aria-label="Individual model forecasts"
-                      initial={{ opacity: 0, y: 8 }}
+                      aria-label="Model details panel"
+                      initial={{ opacity: 0, y: 12 }}
                       animate={{ opacity: 1, y: 0 }}
-                      className="pt-2"
+                      exit={{ opacity: 0, y: -8 }}
+                      className="pt-4"
                     >
-                      <ModelForecastDetailPanel
-                        forecasts={forecasts}
-                        modelNames={heroModelNames}
-                        timezone={location?.timezone}
-                      />
-                    </motion.div>
-                  )}
-
-                  {showHeroModels && isHeroCategoryOpen && heroCategory && heroCategoryMeta && !isHeroMobile && (
-                    <motion.div
-                      id={heroCategoryDetailsId}
-                      role="region"
-                      aria-label={`${heroCategoryMeta.label} model details`}
-                      initial={{ opacity: 0, y: 8 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      className="pt-2"
-                    >
-                      <div className="mb-2 flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-foreground/60">
-                        <span className="flex h-4 w-4 items-center justify-center">
-                          <heroCategoryMeta.icon className="h-3.5 w-3.5" />
-                        </span>
-                        <span>{heroCategoryMeta.label}</span>
+                      {/* Desktop Tab Bar */}
+                      <div className="mb-4 p-1 rounded-lg bg-white/[0.04] flex items-center">
+                        <div className="flex-1 grid grid-cols-5 gap-1">
+                          {DRAWER_TABS.map((tab) => {
+                            const Icon = tab.icon;
+                            const isActive = activeDrawerTab === tab.key;
+                            return (
+                              <button
+                                key={tab.key}
+                                type="button"
+                                onClick={() => setActiveDrawerTab(tab.key)}
+                                className={`
+                                  flex items-center justify-center gap-1.5 py-2 rounded-md text-xs font-medium
+                                  transition-all duration-200 ease-out
+                                  ${isActive
+                                    ? 'bg-white/10 text-foreground shadow-sm'
+                                    : 'text-foreground/60 hover:text-foreground hover:bg-white/[0.04]'
+                                  }
+                                `}
+                                aria-pressed={isActive}
+                              >
+                                {Icon && <Icon className="h-3.5 w-3.5" />}
+                                <span>{tab.label}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setActiveDrawerTab(null)}
+                          className="ml-3 px-2 py-1 text-[10px] text-foreground/50 hover:text-foreground/80 transition-colors"
+                        >
+                          ✕
+                        </button>
                       </div>
-                      <CategoryDetailPanel
-                        category={heroCategory}
-                        forecasts={forecasts}
-                        modelNames={heroModelNames}
-                        timezone={location?.timezone}
-                      />
+
+                      {/* Swipeable Carousel - Desktop */}
+                      <div className="w-full overflow-hidden -m-4 p-4">
+                        <Carousel
+                          setApi={setCarouselApi}
+                          opts={{
+                            startIndex: DRAWER_TABS.findIndex(t => t.key === activeDrawerTab),
+                            loop: false,
+                            dragFree: false,
+                            containScroll: 'trimSnaps',
+                            align: 'start',
+                          }}
+                          className="w-full"
+                        >
+                          <CarouselContent className="ml-0">
+                            {DRAWER_TABS.map((tab) => (
+                              <CarouselItem key={tab.key} className="pl-0 basis-full">
+                                {tab.key === 'overall' ? (
+                                  <ModelForecastDetailPanel
+                                    forecasts={forecasts}
+                                    modelNames={heroModelNames}
+                                    timezone={location?.timezone}
+                                  />
+                                ) : (
+                                  <CategoryDetailPanel
+                                    category={tab.key as CategoryDetailKey}
+                                    forecasts={forecasts}
+                                    modelNames={heroModelNames}
+                                    timezone={location?.timezone}
+                                  />
+                                )}
+                              </CarouselItem>
+                            ))}
+                          </CarouselContent>
+                        </Carousel>
+                      </div>
                     </motion.div>
                   )}
 
