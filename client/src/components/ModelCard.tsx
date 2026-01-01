@@ -4,7 +4,7 @@
  */
 
 import { motion } from 'framer-motion';
-import { AlertCircle, CheckCircle2, Thermometer, Droplets, Wind } from 'lucide-react';
+import { AlertCircle, CheckCircle2, Thermometer, Droplets, Wind, ArrowUp } from 'lucide-react';
 import type { ModelForecast } from '@/lib/weatherApi';
 import { WEATHER_CODES } from '@/lib/weatherApi';
 import { Badge } from '@/components/ui/badge';
@@ -129,8 +129,8 @@ export function ModelCard({
               <p className="font-mono text-sm">
                 {today
                   ? `${Math.round(today.temperatureMax)}° / ${Math.round(
-                      today.temperatureMin
-                    )}°`
+                    today.temperatureMin
+                  )}°`
                   : '--'}
               </p>
             </div>
@@ -142,7 +142,17 @@ export function ModelCard({
               </p>
             </div>
             <div className="text-center">
-              <Wind className="w-4 h-4 mx-auto mb-1 text-foreground/70" />
+              <div className="flex items-center justify-center gap-1 mb-1">
+                <Wind className="w-4 h-4 text-foreground/70" />
+                {Number.isFinite(currentHour.windDirection) && (
+                  <ArrowUp
+                    className="w-3 h-3 text-foreground/70"
+                    style={{
+                      transform: `rotate(${currentHour.windDirection + 180}deg)`
+                    }}
+                  />
+                )}
+              </div>
               <p className="text-xs text-foreground/80">Wind</p>
               <p className="font-mono text-sm">
                 {Math.round(currentHour.windSpeed)} km/h

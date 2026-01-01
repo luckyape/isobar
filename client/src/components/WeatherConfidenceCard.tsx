@@ -239,7 +239,7 @@ export function WeatherConfidenceCard({
   ];
 
   const confidenceAriaLabel =
-    `Confidence: ${overallTone.bandLabel} (${overallPercent}%). Based on ${modelCount} models.` +
+    `Agreement: ${overallTone.bandLabel} (${overallPercent}%). Based on ${modelCount} models.` +
     (freshnessPercent !== null
       ? ` Model freshness ${Math.round(freshnessPercent)}%.`
       : ' Model freshness unavailable.');
@@ -294,7 +294,7 @@ export function WeatherConfidenceCard({
 
         <div className="mt-4 flex flex-col items-center gap-1">
           <span className={`text-sm font-medium ${overallTone.textClass}`}>
-            Confidence: {overallTone.bandLabel} ({overallPercent}%)
+            Agreement: {overallTone.bandLabel} ({overallPercent}%)
           </span>
           <button
             type="button"

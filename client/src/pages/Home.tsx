@@ -1,15 +1,9 @@
-import { useEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
-import { Info, CloudSnow, Loader2, ChevronDownIcon } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Header } from '@/components/Header';
-import {
-  ComparisonTooltipCard,
-  ComparisonTooltipRow,
-  ComparisonTooltipSection
-} from '@/components/ComparisonTooltip';
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import {
   Drawer,
   DrawerClose,
@@ -20,20 +14,20 @@ import {
 } from '@/components/ui/drawer';
 import { useWeather } from '@/hooks/useWeather';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
-import { ConfidenceGauge } from '@/components/ConfidenceGauge';
+import { DualRingGauge } from '@/components/DualRingGauge';
 import { WeatherConfidenceCard } from '@/components/WeatherConfidenceCard';
 import { ModelCard } from '@/components/ModelCard';
-import { DailyForecast, ModelHourlyBreakdownPanel } from '@/components/DailyForecast';
+import { ModelBadgeIcon } from '@/components/ModelBadgeIcon';
+import {
+  CategoryDetailPanel,
+  CATEGORY_DETAIL_META,
+  type CategoryDetailKey
+} from '@/components/CategoryDetailPanel';
+import { ModelForecastDetailPanel } from '@/components/ModelForecastDetailPanel';
+import { DailyForecast, ModelHourlyBreakdownPanel, type BreakdownLens } from '@/components/DailyForecast';
 import { GraphsPanel } from '@/components/GraphsPanel';
 import { WEATHER_CODES } from '@/lib/weatherApi';
-import {
-  findCurrentHourIndex,
-  formatHourLabel,
-  parseOpenMeteoDateTime
-} from '@/lib/timeUtils';
-
-const TOOLTIP_CONTENT_CLASSNAME =
-  'p-0 bg-transparent shadow-none border-none text-foreground [&>svg]:hidden';
+import { findCurrentHourIndex, formatHourLabel, parseOpenMeteoDateTime } from '@/lib/timeUtils';
 
 export default function Home() {
   const {
@@ -51,9 +45,15 @@ export default function Home() {
   } = useWeather();
   const [showModelList, setShowModelList] = useState(false);
   const [visibleLines, setVisibleLines] = useState<Record<string, boolean>>({});
-  const [heroModelsOpen, setHeroModelsOpen] = useState(false);
+  const [heroPane, setHeroPane] = useState<'models' | 'breakdown' | 'category' | null>(null);
+  const [heroCategory, setHeroCategory] = useState<CategoryDetailKey | null>(null);
+  const [breakdownLens, setBreakdownLens] = useState<BreakdownLens>('agreement');
+  const [breakdownCategory, setBreakdownCategory] = useState<string | null>(null);
   const hasInitializedModels = useRef(false);
   const isHeroMobile = useMediaQuery('(max-width: 639px)');
+  const isHeroModelsOpen = heroPane === 'models';
+  const isHeroBreakdownOpen = heroPane === 'breakdown';
+  const isHeroCategoryOpen = heroPane === 'category';
 
   useEffect(() => {
     if (forecasts.length > 0 && !hasInitializedModels.current) {
@@ -90,7 +90,8 @@ export default function Home() {
   }, [forecasts]);
 
   useEffect(() => {
-    setHeroModelsOpen(false);
+    setHeroPane(null);
+    setHeroCategory(null);
   }, [location?.latitude, location?.longitude]);
 
   const toggleLineVisibility = (lineName: string) => {
@@ -114,13 +115,13 @@ export default function Home() {
   const refreshNoticeLabel = refreshNotice?.type === 'no-new-runs'
     ? refreshNotice.latestRunAvailabilityTime
       ? `No new runs since ${new Date(refreshNotice.latestRunAvailabilityTime * 1000).toLocaleTimeString('en-CA', {
-          hour: 'numeric',
-          minute: '2-digit',
-          timeZone: location?.timezone
-        })}`
+        hour: 'numeric',
+        minute: '2-digit',
+        timeZone: location?.timezone
+      })}`
       : 'No new runs detected'
     : null;
-  
+
   const getCurrentConsensus = () => {
     if (!consensus?.hourly?.length) return null;
     const index = findCurrentHourIndex(
@@ -169,7 +170,7 @@ export default function Home() {
       });
     };
     const safeAgreement = (value: number | undefined) =>
-      Number.isFinite(value) ? Math.round(value) : 0;
+      Number.isFinite(value) ? Math.round(value as number) : 0;
     const safeTemp = Number.isFinite(currentConsensus.temperature.mean)
       ? currentConsensus.temperature.mean
       : displayTemperatureValue ?? 0;
@@ -301,6 +302,10 @@ export default function Home() {
   const dailyForDisplay = consensusAvailable ? (consensus?.daily ?? []) : fallbackDaily;
   const showHeroModels = forecasts.some((forecast) => forecast.hourly.length > 0);
   const heroModelNames = consensusAvailable ? consensus?.successfulModels : undefined;
+  const heroModelDetailsId = isHeroMobile ? 'hero-model-details-drawer' : 'hero-model-details';
+  const heroModelBreakdownId = isHeroMobile ? 'hero-model-breakdown-drawer' : 'hero-model-breakdown';
+  const heroCategoryDetailsId = isHeroMobile ? 'hero-category-details-drawer' : 'hero-category-details';
+  const heroCategoryMeta = heroCategory ? CATEGORY_DETAIL_META[heroCategory] : null;
   const heroHourLabel = useMemo(() => {
     const timeValue = currentConsensus?.time ?? currentForecastHour?.time;
     if (!timeValue) return 'This hour';
@@ -310,22 +315,54 @@ export default function Home() {
     return formatted ? `This hour (${formatted})` : 'This hour';
   }, [currentConsensus?.time, currentForecastHour?.time]);
 
+  const toggleHeroModels = () => {
+    setHeroPane((prev) => (prev === 'models' ? null : 'models'));
+    setHeroCategory(null);
+  };
+
+  const toggleHeroBreakdown = () => {
+    setHeroPane((prev) => {
+      const next = prev === 'breakdown' ? null : 'breakdown';
+      if (next === 'breakdown') {
+        setBreakdownLens('agreement');
+        setBreakdownCategory(null);
+      }
+      return next;
+    });
+    setHeroCategory(null);
+  };
+
+  const openHeroBreakdown = (category: string | null = null) => {
+    setBreakdownLens('agreement');
+    setBreakdownCategory(category);
+    setHeroPane('breakdown');
+    setHeroCategory(null);
+  };
+
+  const openHeroCategory = (category: CategoryDetailKey) => {
+    setHeroCategory((prev) => {
+      const next = prev === category ? null : category;
+      setHeroPane(next ? 'category' : null);
+      return next;
+    });
+  };
+
   return (
     <div className="min-h-screen relative overflow-hidden">
       {/* Background with aurora image */}
-      <div 
+      <div
         className="fixed inset-0 bg-cover bg-center bg-no-repeat animate-aurora"
-        style={{ 
+        style={{
           backgroundImage: 'url(/images/hero-aurora.png)',
           opacity: 0.4
         }}
       />
       <div className="fixed inset-0 bg-gradient-to-b from-background/80 via-background/90 to-background" />
-      
+
       {/* Topographic pattern overlay */}
-      <div 
+      <div
         className="fixed inset-0 opacity-10"
-        style={{ 
+        style={{
           backgroundImage: 'url(/images/topo-pattern.png)',
           backgroundSize: '400px'
         }}
@@ -333,7 +370,7 @@ export default function Home() {
 
       {/* Main content */}
       <div className="relative z-10">
-        <Header 
+        <Header
           location={location}
           isOffline={isOffline}
           isLoading={isLoading}
@@ -384,15 +421,17 @@ export default function Home() {
                         {showHeroModels && (
                           <button
                             type="button"
-                            onClick={() => setHeroModelsOpen((prev) => !prev)}
-                            className="inline-flex items-center gap-1 text-xs text-foreground/70 hover:text-foreground"
-                            aria-expanded={heroModelsOpen}
-                            aria-controls="hero-model-breakdown"
+                            onClick={toggleHeroBreakdown}
+                            className="inline-flex items-center rounded-full transition-opacity hover:opacity-80 focus-visible:ring-2 focus-visible:ring-white/30"
+                            aria-expanded={isHeroBreakdownOpen}
+                            aria-controls={heroModelBreakdownId}
+                            aria-label="View model breakdown"
                           >
-                            <span>Models</span>
-                            <ChevronDownIcon
-                              className={`h-3 w-3 transition-transform ${heroModelsOpen ? 'rotate-180' : ''}`}
-                            />
+                            <span aria-hidden="true">
+                              <ModelBadgeIcon
+                                className={`transition-opacity ${isHeroBreakdownOpen ? 'opacity-100' : 'opacity-70'}`}
+                              />
+                            </span>
                           </button>
                         )}
                       </div>
@@ -400,21 +439,8 @@ export default function Home() {
                         {location?.province && `${location.province}, `}
                         {location?.country}
                       </p>
-                      
-                      {displayTemperatureValue !== null && weatherInfo && (
-                        <div className="flex items-center gap-4">
-                          <span className="text-6xl">{weatherInfo.icon}</span>
-                          <div>
-    
-                            <p className="text-5xl font-mono font-semibold">
-                              {Math.round(displayTemperatureValue)}°
-                            </p>
-                            <p className="text-foreground/80">
-                              {weatherInfo.description}
-                            </p>
-                          </div>
-                        </div>
-                      )}
+
+
                       {!consensusAvailable && (
                         <Badge
                           variant="outline"
@@ -425,13 +451,16 @@ export default function Home() {
                             : 'Consensus unavailable'}
                         </Badge>
                       )}
-                      {showHeroModels && heroModelsOpen && !isHeroMobile && (
-                        <div id="hero-model-breakdown" className="mt-4">
+                      {showHeroModels && isHeroBreakdownOpen && !isHeroMobile && (
+                        <div id={heroModelBreakdownId} className="mt-4">
                           <ModelHourlyBreakdownPanel
                             hour={currentConsensus}
                             forecasts={forecasts}
                             modelNames={heroModelNames}
                             timezone={location?.timezone}
+                            lens={breakdownLens}
+                            onLensChange={setBreakdownLens}
+                            focusedCategory={breakdownCategory}
                           />
                         </div>
                       )}
@@ -439,135 +468,153 @@ export default function Home() {
 
                     {showHeroModels && isHeroMobile && (
                       <Drawer
-                        open={heroModelsOpen}
-                        onOpenChange={setHeroModelsOpen}
+                        open={heroPane !== null}
+                        onOpenChange={(open) => {
+                          if (!open) {
+                            setHeroPane(null);
+                            setHeroCategory(null);
+                          }
+                        }}
                       >
-                        <DrawerContent className="glass-card border border-white/10 text-foreground/90">
-                          <DrawerHeader className="pb-2">
+                        <DrawerContent className="glass-card border border-white/10 text-foreground/90 overflow-hidden data-[vaul-drawer-direction=bottom]:mt-12 data-[vaul-drawer-direction=bottom]:max-h-[92vh] [&>div:first-child]:hidden">
+                          <DrawerHeader className="px-4 pb-2 pt-2">
                             <div className="flex items-center justify-between">
                               <div>
-                                <DrawerTitle className="text-base">Model Breakdown</DrawerTitle>
-                                <DrawerDescription className="text-foreground/70 text-xs">
-                                  {heroHourLabel}
-                                </DrawerDescription>
+                                <DrawerTitle className={heroPane === 'models' ? 'sr-only' : 'text-base'}>
+                                  {heroPane === 'category'
+                                    ? (heroCategoryMeta?.label ?? 'Model Details')
+                                    : heroPane === 'breakdown'
+                                      ? 'Model Breakdown'
+                                      : 'Individual model forecasts'}
+                                </DrawerTitle>
+                                {(heroPane === 'breakdown' || heroPane === 'category') && (
+                                  <DrawerDescription className="text-foreground/70 text-xs">
+                                    {heroHourLabel}
+                                  </DrawerDescription>
+                                )}
                               </div>
                               <DrawerClose asChild>
                                 <button
                                   type="button"
-                                  className="text-xs text-foreground/70 hover:text-foreground underline underline-offset-2"
+                                  className="text-[11px] text-foreground/70 hover:text-foreground underline underline-offset-2"
                                 >
                                   Close
                                 </button>
                               </DrawerClose>
                             </div>
                           </DrawerHeader>
-                          <ModelHourlyBreakdownPanel
-                            hour={currentConsensus}
-                            forecasts={forecasts}
-                            modelNames={heroModelNames}
-                            timezone={location?.timezone}
-                            className="mx-4 mb-4"
-                          />
+                          <div className="flex-1 overflow-y-auto px-4 pb-4">
+                            {heroPane === 'breakdown' && (
+                              <div id={heroModelBreakdownId}>
+                                <ModelHourlyBreakdownPanel
+                                  hour={currentConsensus}
+                                  forecasts={forecasts}
+                                  modelNames={heroModelNames}
+                                  timezone={location?.timezone}
+                                  lens={breakdownLens}
+                                  onLensChange={setBreakdownLens}
+                                  focusedCategory={breakdownCategory}
+                                />
+                              </div>
+                            )}
+                            {heroPane === 'models' && (
+                              <div id={heroModelDetailsId}>
+                                <ModelForecastDetailPanel
+                                  forecasts={forecasts}
+                                  modelNames={heroModelNames}
+                                  timezone={location?.timezone}
+                                />
+                              </div>
+                            )}
+                            {heroPane === 'category' && heroCategory && (
+                              <div id={heroCategoryDetailsId}>
+                                <CategoryDetailPanel
+                                  category={heroCategory}
+                                  forecasts={forecasts}
+                                  modelNames={heroModelNames}
+                                  timezone={location?.timezone}
+                                />
+                              </div>
+                            )}
+                          </div>
                         </DrawerContent>
                       </Drawer>
                     )}
-                    
-                    {/* Confidence gauge */}
-                    <div className="flex flex-col items-center gap-6 lg:items-end">
-                      <div className="w-full max-w-[420px]">
-                        <ConfidenceGauge
-                          score={consensus.metrics.overall}
-                          size="lg"
-                          isUnavailable={!consensusAvailable}
-                          metrics={consensus.metrics}
-                        />
-                      </div>
-                      {forecasts.length > 0 && (
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <button
-                              type="button"
-                              className="flex items-center justify-center gap-4 rounded-full bg-transparent p-0 border-none focus-visible:ring-2 focus-visible:ring-ring/50"
-                              aria-label="Model freshness details"
-                            >
-                              {forecasts.map((forecast) => {
-                                const tone = getModelFreshnessTone(
-                                  forecast.runAvailabilityTime,
-                                  Boolean(forecast.error)
-                                );
-                                return (
-                                  <span
-                                    key={`${forecast.model.id}-freshness-dot`}
-                                    className={`h-3 w-3 rounded-full inline-block opacity-50 ${freshnessToneClass[tone]}`}
-                                    aria-hidden="true"
-                                  />
-                                );
-                              })}
-                            </button>
-                          </TooltipTrigger>
-                          <TooltipContent side="top" className={TOOLTIP_CONTENT_CLASSNAME}>
-                            <ComparisonTooltipCard title="Model freshness">
-                              <ComparisonTooltipSection>
-                                <ComparisonTooltipRow
-                                  label="Freshness score"
-                                  value={freshnessScoreValue !== null ? `${freshnessScoreValue}%` : 'Unavailable'}
-                                />
-                              </ComparisonTooltipSection>
-                              <ComparisonTooltipSection divider>
-                                {forecasts.map((forecast) => {
-                                  const ageSeconds = Number.isFinite(forecast.runAvailabilityTime)
-                                    ? Math.max(0, nowSeconds - (forecast.runAvailabilityTime as number))
-                                    : null;
-                                  const ageValue = ageSeconds !== null
-                                    ? formatAge(ageSeconds)
-                                    : null;
-                                  const pendingAvailabilityTime = Number.isFinite(forecast.pendingAvailabilityTime ?? NaN)
-                                    ? (forecast.pendingAvailabilityTime as number)
-                                    : null;
-                                  const statusLabel = pendingAvailabilityTime !== null
-                                    ? 'Stabilizing'
-                                    : forecast.updateError
-                                      ? 'Cached'
-                                      : forecast.error
-                                        ? 'Error'
-                                        : null;
-                                  const valueLabel = ageValue ? `${ageValue} ago` : 'Unknown';
-                                  const valueWithStatus = statusLabel
-                                    ? `${valueLabel} (${statusLabel})`
-                                    : valueLabel;
-                                  return (
-                                    <ComparisonTooltipRow
-                                      key={`${forecast.model.id}-freshness-row`}
-                                      label={forecast.model.name}
-                                      value={valueWithStatus}
-                                      icon={
-                                        <span
-                                          className="h-2 w-2 triangle-icon"
-                                          style={{ backgroundColor: forecast.model.color }}
-                                          aria-hidden="true"
-                                        />
-                                      }
-                                    />
-                                  );
-                                })}
-                              </ComparisonTooltipSection>
-                            </ComparisonTooltipCard>
-                          </TooltipContent>
-                        </Tooltip>
-                      )}
+
+                    {/* Forecast Console with Decomposed Gauges */}
+                    <div className="flex flex-col items-center gap-4 lg:items-end">
+                      <DualRingGauge
+                        score={consensus.metrics.overall}
+                        size="lg"
+                        isUnavailable={!consensusAvailable}
+                        metrics={consensus.metrics}
+                        forecast={displayTemperatureValue !== null && weatherInfo ? {
+                          temperature: displayTemperatureValue,
+                          icon: weatherInfo.icon,
+                          description: weatherInfo.description
+                        } : undefined}
+                        onOverallTap={showHeroModels ? () => openHeroBreakdown(null) : undefined}
+                        onCategoryTap={showHeroModels ? (category: string) => openHeroCategory(category as CategoryDetailKey) : undefined}
+                        onModelDetailsToggle={showHeroModels ? toggleHeroModels : undefined}
+                        modelDetailsOpen={isHeroModelsOpen}
+                        modelDetailsControlsId={heroModelDetailsId}
+                        modelDetailsLabel="Show individual model forecasts"
+                        activeCategoryKey={isHeroCategoryOpen ? heroCategory : null}
+                      />
                     </div>
                   </div>
+
+                  {showHeroModels && isHeroModelsOpen && !isHeroMobile && (
+                    <motion.div
+                      id={heroModelDetailsId}
+                      role="region"
+                      aria-label="Individual model forecasts"
+                      initial={{ opacity: 0, y: 8 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className="pt-2"
+                    >
+                      <ModelForecastDetailPanel
+                        forecasts={forecasts}
+                        modelNames={heroModelNames}
+                        timezone={location?.timezone}
+                      />
+                    </motion.div>
+                  )}
+
+                  {showHeroModels && isHeroCategoryOpen && heroCategory && heroCategoryMeta && !isHeroMobile && (
+                    <motion.div
+                      id={heroCategoryDetailsId}
+                      role="region"
+                      aria-label={`${heroCategoryMeta.label} model details`}
+                      initial={{ opacity: 0, y: 8 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className="pt-2"
+                    >
+                      <div className="mb-2 flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-foreground/60">
+                        <span className="flex h-4 w-4 items-center justify-center">
+                          <heroCategoryMeta.icon className="h-3.5 w-3.5" />
+                        </span>
+                        <span>{heroCategoryMeta.label}</span>
+                      </div>
+                      <CategoryDetailPanel
+                        category={heroCategory}
+                        forecasts={forecasts}
+                        modelNames={heroModelNames}
+                        timezone={location?.timezone}
+                      />
+                    </motion.div>
+                  )}
 
                   {/* Model status and metadata */}
                   <div className="flex flex-col gap-3">
                     <div className="flex flex-wrap items-center gap-2">
-  
+
                       <span className="text-sm text-foreground/80">
                         Based on {consensus.modelCount} weather models
                       </span>
-  
+
                     </div>
-                    
+
                     {showModelList && (
                       <div id="model-status-list" className="space-y-2">
                         {consensus.successfulModels.map(name => {
@@ -632,11 +679,11 @@ export default function Home() {
                         })}
                       </div>
                     )}
-                    
+
                     {lastUpdated && (
                       <p className="text-xs text-foreground/80">
-                        Updated {lastUpdated.toLocaleTimeString('en-CA', { 
-                          hour: 'numeric', 
+                        Updated {lastUpdated.toLocaleTimeString('en-CA', {
+                          hour: 'numeric',
                           minute: '2-digit',
                           timeZone: location?.timezone
                         })}
@@ -650,7 +697,7 @@ export default function Home() {
               </div>
             </motion.section>
 
-            {weatherConfidenceCardData && (
+            {/* {weatherConfidenceCardData && (
               <motion.section
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
@@ -659,7 +706,7 @@ export default function Home() {
               >
                 <WeatherConfidenceCard {...weatherConfidenceCardData} />
               </motion.section>
-            )}
+            )} */}
 
             {/* Hourly chart */}
             <motion.section

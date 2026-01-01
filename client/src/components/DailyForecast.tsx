@@ -5,7 +5,7 @@
 
 import { memo, useCallback, useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
-import { ChevronDownIcon } from 'lucide-react';
+import { ChevronDownIcon, ArrowUp } from 'lucide-react';
 import {
   Drawer,
   DrawerClose,
@@ -527,18 +527,28 @@ export const ModelBreakdownPanel = memo(function ModelBreakdownPanel({
   );
 });
 
+export type BreakdownLens = 'agreement' | 'freshness';
+
 const ModelHourlyBreakdownPanel = memo(function ModelHourlyBreakdownPanel({
   hour,
   forecasts,
   modelNames,
   timezone,
-  className
+  className,
+  focusedCategory = null,
+  lens = 'agreement',
+  onLensChange
 }: {
   hour?: HourlyConsensus | null;
   forecasts: ModelForecast[];
   modelNames?: string[];
   timezone?: string;
   className?: string;
+  focusedCategory?: string | null;
+  /** Current lens mode - affects emphasis and display */
+  lens?: BreakdownLens;
+  /** Callback when user changes lens via internal toggle */
+  onLensChange?: (lens: BreakdownLens) => void;
 }) {
   const modelOrder = useMemo<string[]>(() => {
     if (!modelNames?.length) {
@@ -696,8 +706,46 @@ const ModelHourlyBreakdownPanel = memo(function ModelHourlyBreakdownPanel({
     ? `${reasonLine} Freshness: ${freshnessNote}.`
     : reasonLine;
 
+  // Determine which metric is the "driver" (highest spread)
+  const driverMetric = focusedCategory || maxSpread?.label || null;
+
   return (
     <div className={cn('rounded-lg border border-white/10 bg-white/[0.02] p-3', className)}>
+      {/* Lens toggle tabs */}
+      {onLensChange && (
+        <div className="mb-3 flex gap-1 rounded-lg bg-white/[0.04] p-1">
+          <button
+            type="button"
+            onClick={() => onLensChange('agreement')}
+            className={cn(
+              'flex-1 rounded-md px-3 py-1.5 text-xs font-medium transition-colors',
+              lens === 'agreement'
+                ? 'bg-white/10 text-foreground'
+                : 'text-foreground/60 hover:text-foreground/80'
+            )}
+          >
+            Agreement
+          </button>
+          <button
+            type="button"
+            onClick={() => onLensChange('freshness')}
+            className={cn(
+              'flex-1 rounded-md px-3 py-1.5 text-xs font-medium transition-colors',
+              lens === 'freshness'
+                ? 'bg-white/10 text-foreground'
+                : 'text-foreground/60 hover:text-foreground/80'
+            )}
+          >
+            Freshness
+          </button>
+        </div>
+      )}
+
+      {/* Driver explanation - emphasized in agreement mode */}
+      {lens === 'agreement' && agreementScore !== null && (
+        <p className="mb-3 text-xs text-foreground/80">{reasonWithFreshness}</p>
+      )}
+
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         {modelEntries.map((entry) => {
           const temp = getNumeric(entry.hour?.temperature);
@@ -745,7 +793,22 @@ const ModelHourlyBreakdownPanel = memo(function ModelHourlyBreakdownPanel({
                   />
                   <span className="font-medium">{entry.name}</span>
                 </div>
-                <span className={`h-2 w-2 rounded-full ${freshnessToneClass[freshnessTone]}`} />
+                {/* Freshness indicator - more prominent in freshness mode */}
+                <div className={cn(
+                  'flex items-center gap-1.5',
+                  lens === 'freshness' && 'bg-white/[0.04] rounded-full px-2 py-0.5'
+                )}>
+                  <span className={cn(
+                    'rounded-full',
+                    lens === 'freshness' ? 'h-2.5 w-2.5' : 'h-2 w-2',
+                    freshnessToneClass[freshnessTone]
+                  )} />
+                  {lens === 'freshness' && (
+                    <span className="text-[10px] text-foreground/70 font-mono tabular-nums">
+                      {ageShort}
+                    </span>
+                  )}
+                </div>
               </div>
               <div className="mt-1 text-[10px] text-foreground/60">
                 {entry.runAvailabilityTime !== null ? (
@@ -778,28 +841,50 @@ const ModelHourlyBreakdownPanel = memo(function ModelHourlyBreakdownPanel({
                 )}
               </div>
               <div
-                className="mt-2 rounded-md px-2 py-1 font-mono text-base tabular-nums"
+                className={cn(
+                  "mt-2 rounded-md px-2 py-1 font-mono text-base tabular-nums",
+                  lens === 'agreement' && driverMetric === 'temperature' && 'border-l-2 border-[oklch(0.75_0.18_85/50%)]'
+                )}
                 style={tempOutlierStyle}
               >
                 {tempValue}
               </div>
               <div className="mt-2 space-y-1 text-[11px] text-foreground/70">
                 <div
-                  className="flex items-center justify-between rounded-md bg-white/[0.02] px-2 py-1"
+                  className={cn(
+                    "flex items-center justify-between rounded-md bg-white/[0.02] px-2 py-1",
+                    lens === 'agreement' && driverMetric === 'precipitation' && 'border-l-2 border-[oklch(0.75_0.18_85/50%)]'
+                  )}
                   style={precipOutlierStyle}
                 >
                   <span>Precip</span>
                   <span className="font-mono tabular-nums">{precipValue}</span>
                 </div>
                 <div
-                  className="flex items-center justify-between rounded-md bg-white/[0.02] px-2 py-1"
+                  className={cn(
+                    "flex items-center justify-between rounded-md bg-white/[0.02] px-2 py-1",
+                    lens === 'agreement' && driverMetric === 'wind' && 'border-l-2 border-[oklch(0.75_0.18_85/50%)]'
+                  )}
                   style={windOutlierStyle}
                 >
-                  <span>Wind</span>
+                  <div className="flex items-center gap-1">
+                    <span>Wind</span>
+                    {Number.isFinite(entry.hour?.windDirection) && (
+                      <ArrowUp
+                        className="w-3 h-3 opacity-80"
+                        style={{
+                          transform: `rotate(${(entry.hour?.windDirection ?? 0) + 180}deg)`
+                        }}
+                      />
+                    )}
+                  </div>
                   <span className="font-mono tabular-nums">{windValue}</span>
                 </div>
                 <div
-                  className="flex items-center justify-between rounded-md bg-white/[0.02] px-2 py-1"
+                  className={cn(
+                    "flex items-center justify-between rounded-md bg-white/[0.02] px-2 py-1",
+                    lens === 'agreement' && driverMetric === 'conditions' && 'border-l-2 border-[oklch(0.75_0.18_85/50%)]'
+                  )}
                   style={conditionOutlierStyle}
                 >
                   <span>Cond</span>
@@ -1004,7 +1089,7 @@ export function DailyForecast({
   return (
     <div className="glass-card p-4 sm:p-6 readable-text">
       <h2 className="text-xl font-semibold mb-4">7-Day Forecast</h2>
-      
+
       <div className="space-y-3">
         {daily.map((day, index) => {
           const displayDate = formatDate(day.date);
@@ -1066,7 +1151,7 @@ export function DailyForecast({
           </DrawerContent>
         </Drawer>
       )}
-      
+
       {/* Legend */}
       {showAgreement && (
         <div className="flex flex-wrap items-center justify-start sm:justify-end gap-4 mt-4 pt-4 border-t border-white/10">
