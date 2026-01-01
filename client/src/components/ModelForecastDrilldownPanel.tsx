@@ -189,6 +189,8 @@ export function ModelForecastDrilldownPanel({
     [timeSlots]
   );
 
+
+
   return (
     <div
       ref={scrollContainerRef}
@@ -278,6 +280,7 @@ export function ModelForecastDrilldownPanel({
                       <XAxis
                         dataKey="label"
                         interval="preserveStartEnd"
+                        minTickGap={30}
                         tick={{ fill: 'oklch(0.95 0.01 240 / 0.6)', fontSize: 11 }}
                         axisLine={false}
                         tickLine={false}
@@ -319,6 +322,7 @@ export function ModelForecastDrilldownPanel({
                       <XAxis
                         dataKey="label"
                         interval="preserveStartEnd"
+                        minTickGap={30}
                         tick={{ fill: 'oklch(0.95 0.01 240 / 0.6)', fontSize: 11 }}
                         axisLine={false}
                         tickLine={false}
@@ -370,6 +374,7 @@ export function ModelForecastDrilldownPanel({
                       <XAxis
                         dataKey="label"
                         interval="preserveStartEnd"
+                        minTickGap={30}
                         tick={{ fill: 'oklch(0.95 0.01 240 / 0.6)', fontSize: 11 }}
                         axisLine={false}
                         tickLine={false}
@@ -421,7 +426,7 @@ export function ModelForecastDrilldownPanel({
               </ChartCard>
 
               <ChartCard title="Conditions" icon={Cloud}>
-                <div className="flex gap-3 overflow-x-auto pb-2">
+                <div className="flex flex-wrap justify-center gap-3 pb-2">
                   {conditionSamples.map((slot) => {
                     const info = getWeatherInfo(slot.hour.weatherCode);
                     return (
