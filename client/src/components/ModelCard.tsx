@@ -100,7 +100,7 @@ export function ModelCard({
             <p className="text-xs text-foreground/80">{model.provider}</p>
           </div>
         </div>
-        <CheckCircle2 className="w-4 h-4 text-[oklch(0.72_0.19_160)]" />
+        <CheckCircle2 className="w-4 h-4 text-agreement-high" />
       </div>
 
       {/* Current conditions */}

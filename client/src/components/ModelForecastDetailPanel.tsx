@@ -86,16 +86,16 @@ export function ModelForecastDetailPanel({
           : null;
         const tint = entry.color ? withAlpha(entry.color, 0.12) : undefined;
         const cardStyle = tint
-          ? { background: `linear-gradient(135deg, ${tint}, oklch(0.12 0.02 240))` }
+          ? { background: `linear-gradient(135deg, ${tint}, var(--background))` }
           : undefined;
 
         return (
           <div
             key={entry.name}
-            className="rounded-lg sm:rounded-xl border border-white/10 bg-white/[0.02] p-2.5 sm:p-4 text-foreground/90 min-h-[7rem] sm:min-h-[8rem] flex flex-col"
+            className="rounded-lg sm:rounded-xl border border-white/10 bg-subtle p-2.5 sm:p-4 text-foreground/90 min-h-28 sm:min-h-32 flex flex-col"
             style={cardStyle}
           >
-            <div className="flex items-center gap-2 text-[9px] sm:text-[10px] font-semibold uppercase tracking-[0.16em] text-foreground/70">
+            <div className="flex items-center gap-2 text-[9px] sm:text-[10px] font-semibold uppercase tracking-caps text-foreground/70">
               <span
                 className="h-2 w-2 sm:h-2.5 sm:w-2.5 triangle-icon"
                 style={{ backgroundColor: entry.color }}
@@ -104,6 +104,7 @@ export function ModelForecastDetailPanel({
             </div>
             <ForecastDisplay
               temperature={temp}
+              precision={1}
               icon={weatherInfo?.icon ?? '—'}
               description={weatherInfo?.description ?? '—'}
               className="mt-1.5 sm:mt-3 flex-1"

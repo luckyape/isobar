@@ -2,6 +2,12 @@
 
 Progressive Web App that compares multiple weather models and surfaces agreement confidence.
 
+## Agreement methodology
+
+See:
+- `docs/AGREEMENT.md` (math + constants)
+- `docs/DATA_FLOW.md` (UI bindings audit)
+
 ## Metadata Gating and Refresh
 
 Forecast calls are gated by Open-Meteo metadata to reduce unnecessary requests.

@@ -29,7 +29,7 @@ import {
   formatWeekdayHourLabel,
   parseOpenMeteoDateTime
 } from '@/lib/timeUtils';
-import { useIsMobile } from '@/hooks/useMobile';
+import { useIsMobile } from '@/hooks/useMediaQuery';
 
 interface HourlyChartProps {
   forecasts: ModelForecast[];
@@ -50,11 +50,11 @@ export function HourlyChart({
   observations = [],
   timezone,
   visibleLines = {},
-  onToggleLine = () => {}
+  onToggleLine = () => { }
 }: HourlyChartProps) {
   const hasConsensus = showConsensus && consensus.length > 0;
   const isMobile = useIsMobile();
-  const observedColor = 'oklch(0.85 0.12 60)';
+  const observedColor = 'var(--color-observed)';
   const observationByTime = useMemo(() => {
     if (!observations.length) return new Map<string, number>();
     const map = new Map<string, number>();
@@ -131,7 +131,8 @@ export function HourlyChart({
           dataPoint.consensusMean = consensusPoint.temperature.mean;
           dataPoint.consensusMin = consensusPoint.temperature.min;
           dataPoint.consensusMax = consensusPoint.temperature.max;
-          dataPoint.agreement = consensusPoint.overallAgreement;
+          dataPoint.temperatureAgreement = consensusPoint.temperature.agreement;
+          dataPoint.overallAgreement = consensusPoint.overallAgreement;
         }
       }
 
@@ -173,7 +174,7 @@ export function HourlyChart({
   // Custom tooltip
   const CustomTooltip = ({ active, payload }: any) => {
     if (!active || !payload || !payload.length) return null;
-    
+
     const data = payload[0]?.payload;
     if (!data) return null;
     const hasConsensusData = data.consensusMean !== undefined;
@@ -182,7 +183,11 @@ export function HourlyChart({
       if (!Number.isFinite(value ?? NaN)) return '--';
       return `${Math.round((value as number) * 10) / 10}°`;
     };
-    
+    const formatAgreement = (value?: number) => {
+      if (!Number.isFinite(value ?? NaN)) return '--';
+      return `${Math.round(value as number)}%`;
+    };
+
     return (
       <ComparisonTooltipCard title={data.fullLabel}>
         {hasConsensusData && (
@@ -196,8 +201,12 @@ export function HourlyChart({
               value={`${formatTemperature(data.consensusMin)} - ${formatTemperature(data.consensusMax)}`}
             />
             <ComparisonTooltipRow
-              label="Agreement"
-              value={`${data.agreement}%`}
+              label="Temp agreement"
+              value={formatAgreement(data.temperatureAgreement)}
+            />
+            <ComparisonTooltipRow
+              label="Overall agreement"
+              value={formatAgreement(data.overallAgreement)}
             />
           </ComparisonTooltipSection>
         )}
@@ -253,8 +262,8 @@ export function HourlyChart({
                 <stop offset="100%" stopColor="oklch(0.75 0.15 195)" stopOpacity={0.05} />
               </linearGradient>
             </defs>
-            
-            <XAxis 
+
+            <XAxis
               dataKey="time"
               stroke="oklch(0.95 0.01 240 / 0.7)"
               fontSize={isMobile ? 10 : 12}
@@ -263,7 +272,7 @@ export function HourlyChart({
               tickMargin={isMobile ? 6 : 10}
               tickFormatter={(time) => labelByTime.get(time as string) ?? ''}
             />
-            <YAxis 
+            <YAxis
               stroke="oklch(0.95 0.01 240 / 0.7)"
               fontSize={isMobile ? 10 : 12}
               tickLine={false}
@@ -280,7 +289,7 @@ export function HourlyChart({
                 strokeWidth={1}
               />
             )}
-            
+
             {hasConsensus && (
               <>
                 {/* Consensus range area */}
@@ -300,7 +309,7 @@ export function HourlyChart({
                 />
               </>
             )}
-            
+
             {/* Individual model lines */}
             {WEATHER_MODELS.map(
               (model) =>
@@ -327,7 +336,7 @@ export function HourlyChart({
                 strokeOpacity={0.9}
               />
             )}
-            
+
             {hasConsensus && visibleLines['Consensus Mean'] && (
               <Line
                 type="monotone"
@@ -348,7 +357,7 @@ export function HourlyChart({
           </ComposedChart>
         </ResponsiveContainer>
       </div>
-      
+
       {/* Legend */}
       <div className="flex flex-wrap items-center justify-center gap-4 mt-4 pt-4 border-t border-white/10">
         {hasConsensus && (

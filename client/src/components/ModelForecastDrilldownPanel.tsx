@@ -40,7 +40,8 @@ type TimeSlot = {
 
 function formatTemp(value: number | null | undefined): string {
   if (!Number.isFinite(value ?? NaN)) return '--';
-  return `${Math.round(value as number)}°`;
+  const rounded = Math.round((value as number) * 10) / 10;
+  return `${rounded.toFixed(1)}°`;
 }
 
 function formatPercent(value: number | null | undefined): string {

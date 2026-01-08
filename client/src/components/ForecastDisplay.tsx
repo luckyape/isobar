@@ -6,6 +6,7 @@ interface ForecastDisplayProps {
   value?: number | null;
   valueLabel?: string | null;
   unit?: string;
+  precision?: number;
   hideValue?: boolean;
   icon?: ReactNode;
   description?: string | null;
@@ -19,6 +20,7 @@ export function ForecastDisplay({
   value,
   valueLabel,
   unit,
+  precision = 0,
   hideValue = false,
   icon,
   description,
@@ -29,14 +31,19 @@ export function ForecastDisplay({
   const resolvedValue = value ?? temperature;
   const hasCustomValue = value !== undefined;
   const displayUnit = unit ?? (hasCustomValue ? '' : '°');
-  const numericValue = Number.isFinite(resolvedValue ?? NaN)
-    ? Math.round(resolvedValue as number)
-    : null;
+  const normalizedPrecision = Number.isFinite(precision ?? NaN)
+    ? Math.max(0, Math.min(Math.round(precision), 3))
+    : 0;
+  const numericValue = Number.isFinite(resolvedValue ?? NaN) ? (resolvedValue as number) : null;
+  const roundedValue = numericValue === null
+    ? null
+    : Math.round(numericValue * 10 ** normalizedPrecision) / 10 ** normalizedPrecision;
+  const formattedValue = roundedValue === null ? null : roundedValue.toFixed(normalizedPrecision);
   const hasValueLabel = valueLabel !== undefined && valueLabel !== null;
   const displayValue = hasValueLabel
     ? valueLabel
-    : numericValue !== null
-      ? numericValue
+    : formattedValue !== null
+      ? formattedValue
       : '—';
   const sizeStyles = size === 'hero'
     ? {

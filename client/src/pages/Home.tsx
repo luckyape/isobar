@@ -194,6 +194,19 @@ export default function Home() {
   const currentConsensus = consensusAvailable ? getCurrentConsensus() : null;
   const currentForecastHour = !consensusAvailable ? getCurrentForecastHour() : null;
 
+  const heroAgreementScore = consensusAvailable && currentConsensus
+    ? currentConsensus.overallAgreement
+    : 0;
+  const heroAgreementMetrics = consensusAvailable && currentConsensus
+    ? {
+      overall: currentConsensus.overallAgreement,
+      temperature: currentConsensus.temperature.agreement,
+      precipitation: currentConsensus.precipitationCombined.agreement,
+      wind: currentConsensus.windSpeed.agreement,
+      conditions: currentConsensus.weatherCode.agreement
+    }
+    : null;
+
   const displayTemperature = consensusAvailable
     ? currentConsensus?.temperature.mean
     : currentForecastHour?.temperature;
@@ -243,7 +256,7 @@ export default function Home() {
       freshness: freshnessScoreValue ?? null,
       categories: {
         temp: safeAgreement(currentConsensus.temperature.agreement),
-        precip: safeAgreement(currentConsensus.precipitation.agreement),
+        precip: safeAgreement(currentConsensus.precipitationCombined.agreement),
         wind: safeAgreement(currentConsensus.windSpeed.agreement),
         cloud: safeAgreement(currentConsensus.weatherCode.agreement)
       },
@@ -338,6 +351,20 @@ export default function Home() {
       min: day.precipitationSum,
       max: day.precipitationSum,
       agreement: 0
+    },
+    precipitationProbabilityMax: {
+      mean: day.precipitationProbabilityMax ?? 0,
+      min: day.precipitationProbabilityMax ?? 0,
+      max: day.precipitationProbabilityMax ?? 0,
+      agreement: 0
+    },
+    precipitationCombined: {
+      agreement: 0,
+      amountAgreement: 0,
+      probabilityAgreement: 0,
+      amountAvailable: false,
+      probabilityAvailable: false,
+      available: false
     },
     windSpeed: {
       mean: day.windSpeedMax,
@@ -557,10 +584,10 @@ export default function Home() {
                     {/* Forecast Console with Decomposed Gauges */}
                     <div className="flex flex-col items-center gap-4 lg:items-end">
                       <DualRingGauge
-                        score={consensus.metrics.overall}
+                        score={heroAgreementScore}
                         size="lg"
                         isUnavailable={!consensusAvailable}
-                        metrics={consensus.metrics}
+                        metrics={heroAgreementMetrics}
                         forecast={displayTemperatureValue !== null && weatherInfo ? {
                           temperature: displayTemperatureValue,
                           icon: weatherInfo.icon,
@@ -748,17 +775,6 @@ export default function Home() {
                 </div>
               </div>
             </motion.section>
-
-            {/* {weatherConfidenceCardData && (
-              <motion.section
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.08 }}
-                className="mb-8"
-              >
-                <WeatherConfidenceCard {...weatherConfidenceCardData} />
-              </motion.section>
-            )} */}
 
             {/* Hourly chart */}
             <motion.section

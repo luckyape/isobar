@@ -1,7 +1,6 @@
 import { jsxLocPlugin } from "@builder.io/vite-plugin-jsx-loc";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
-import fs from "node:fs";
 import path from "path";
 import { defineConfig } from "vite";
 import { vitePluginManusRuntime } from "vite-plugin-manus-runtime";
@@ -17,6 +16,7 @@ export default defineConfig({
       "@": path.resolve(import.meta.dirname, "client", "src"),
       "@shared": path.resolve(import.meta.dirname, "shared"),
       "@assets": path.resolve(import.meta.dirname, "attached_assets"),
+      "@cdn": path.resolve(import.meta.dirname, "cdn"),
     },
     dedupe: ["react", "react-dom"],
   },
@@ -45,17 +45,17 @@ export default defineConfig({
     },
     proxy: meteostatProxyKey
       ? {
-          "/api/observations": {
-            target: "https://meteostat.p.rapidapi.com",
-            changeOrigin: true,
-            secure: true,
-            rewrite: (path) => path.replace(/^\/api\/observations/, "/point/hourly"),
-            headers: {
-              "x-rapidapi-key": meteostatProxyKey,
-              "x-rapidapi-host": "meteostat.p.rapidapi.com",
-            },
+        "/api/observations": {
+          target: "https://meteostat.p.rapidapi.com",
+          changeOrigin: true,
+          secure: true,
+          rewrite: (path) => path.replace(/^\/api\/observations/, "/point/hourly"),
+          headers: {
+            "x-rapidapi-key": meteostatProxyKey,
+            "x-rapidapi-host": "meteostat.p.rapidapi.com",
           },
-        }
+        },
+      }
       : undefined,
   },
 });

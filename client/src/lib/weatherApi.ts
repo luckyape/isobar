@@ -13,133 +13,21 @@ import {
   parseOpenMeteoDateTime
 } from '@/lib/timeUtils';
 
-export interface WeatherModel {
-  id: string;
-  name: string;
-  provider: string;
-  endpoint: string;
-  color: string;
-  description: string;
-  metadataId?: string;
-}
+export * from './weatherTypes';
+export * from './weatherModels';
 
-export interface HourlyForecast {
-  time: string;
-  temperature: number;
-  precipitation: number;
-  precipitationProbability: number;
-  windSpeed: number;
-  windDirection: number;
-  windGusts: number;
-  cloudCover: number;
-  humidity: number;
-  pressure: number;
-  weatherCode: number;
-}
+import {
+  type WeatherModel,
+  type HourlyForecast,
+  type DailyForecast,
+  type ModelForecast,
+  type ModelMetadata,
+  type ObservedHourly,
+  type ObservedConditions,
+  type Location
+} from './weatherTypes';
+import { WEATHER_MODELS } from './weatherModels';
 
-export interface DailyForecast {
-  date: string;
-  temperatureMax: number;
-  temperatureMin: number;
-  precipitationSum: number;
-  precipitationProbabilityMax: number;
-  windSpeedMax: number;
-  windGustsMax: number;
-  weatherCode: number;
-  sunrise: string;
-  sunset: string;
-}
-
-export interface ModelForecast {
-  model: WeatherModel;
-  hourly: HourlyForecast[];
-  daily: DailyForecast[];
-  fetchedAt: Date;
-  runInitialisationTime?: number;
-  runAvailabilityTime?: number;
-  updateIntervalSeconds?: number;
-  metadataFetchedAt?: number;
-  snapshotTime?: number;
-  lastForecastFetchTime?: number;
-  lastSeenRunAvailabilityTime?: number | null;
-  lastForecastSnapshotId?: string;
-  snapshotHash?: string;
-  etag?: string;
-  pendingAvailabilityTime?: number;
-  updateError?: string;
-  error?: string;
-}
-
-export interface ModelMetadata {
-  runInitialisationTime?: number;
-  runAvailabilityTime?: number;
-  updateIntervalSeconds?: number;
-  metadataFetchedAt?: number;
-}
-
-export interface ObservedHourly {
-  time: string;
-  temperature: number;
-  precipitation?: number;
-  windSpeed?: number;
-  windDirection?: number;
-  windGusts?: number;
-}
-
-export interface ObservedConditions {
-  hourly: ObservedHourly[];
-  fetchedAt: Date;
-  error?: string;
-}
-
-export interface Location {
-  name: string;
-  latitude: number;
-  longitude: number;
-  country: string;
-  province?: string;
-  timezone: string;
-}
-
-// Weather models configuration - focused on Canadian context
-export const WEATHER_MODELS: WeatherModel[] = [
-  {
-    id: 'gem_seamless',
-    name: 'GEM',
-    provider: 'Environment Canada',
-    endpoint: 'https://api.open-meteo.com/v1/gem',
-    color: 'oklch(0.75 0.15 195)', // Arctic cyan
-    description: 'Canadian Global Environmental Multiscale Model - Primary for Canada',
-    metadataId: 'cmc_gem_gdps'
-  },
-  {
-    id: 'gfs_seamless',
-    name: 'GFS',
-    provider: 'NOAA (US)',
-    endpoint: 'https://api.open-meteo.com/v1/gfs',
-    color: 'oklch(0.70 0.16 280)', // Purple
-    description: 'Global Forecast System - US model with global coverage',
-    metadataId: 'ncep_gfs013'
-  },
-  {
-    id: 'ecmwf_ifs',
-    name: 'ECMWF',
-    provider: 'European Centre',
-    endpoint: 'https://api.open-meteo.com/v1/ecmwf',
-    color: 'oklch(0.72 0.19 160)', // Green
-    description: 'European model - IFS HRES 9 km global forecast',
-    metadataId: 'ecmwf_ifs'
-  },
-  {
-    id: 'icon_seamless',
-    name: 'ICON',
-    provider: 'DWD (Germany)',
-    endpoint: 'https://api.open-meteo.com/v1/dwd-icon',
-    color: 'oklch(0.75 0.18 85)', // Amber
-    description: 'German Icosahedral Nonhydrostatic model',
-    metadataId: 'dwd_icon'
-  }
-];
 
 const DEFAULT_UPDATE_INTERVAL_SECONDS = 600;
 const MIN_METADATA_INTERVAL_SECONDS = 60;
@@ -582,9 +470,9 @@ async function fetchModelMetadata(
 
       const data = await response.json();
       const metadata: ModelMetadata = {
-        runInitialisationTime: parseMetadataTime(data?.last_run_initialisation_time),
-        runAvailabilityTime: parseMetadataTime(data?.last_run_availability_time),
-        updateIntervalSeconds: parseMetadataInterval(data?.update_interval_seconds),
+        runInitialisationTime: parseMetadataTime((data as any)?.last_run_initialisation_time),
+        runAvailabilityTime: parseMetadataTime((data as any)?.last_run_availability_time),
+        updateIntervalSeconds: parseMetadataInterval((data as any)?.update_interval_seconds),
         metadataFetchedAt: nowMs
       };
 
@@ -720,9 +608,9 @@ export async function fetchObservedHourly(
 
   const headers = directApiKey
     ? {
-        'x-rapidapi-key': directApiKey,
-        'x-rapidapi-host': 'meteostat.p.rapidapi.com'
-      }
+      'x-rapidapi-key': directApiKey,
+      'x-rapidapi-host': 'meteostat.p.rapidapi.com'
+    }
     : undefined;
 
   try {
@@ -732,7 +620,7 @@ export async function fetchObservedHourly(
     }
 
     const data = await response.json();
-    const rawData = Array.isArray(data?.data) ? data.data : [];
+    const rawData = Array.isArray((data as any)?.data) ? (data as any).data : [];
     const hourly: ObservedHourly[] = rawData
       .map((row: any) => {
         let time = normalizeObservationTime(row?.time, timezone);
@@ -779,77 +667,14 @@ export async function fetchObservedHourly(
   }
 }
 
-// Icon-level normalization: collapse WMO codes that render the same graphics.
-const WEATHER_CODE_NORMALIZATION: Record<number, number> = {
-  0: 0,
-  1: 1,
-  2: 2,
-  3: 3,
-  45: 45,
-  48: 45,
-  51: 61,
-  53: 61,
-  55: 61,
-  56: 71,
-  57: 71,
-  61: 61,
-  63: 61,
-  65: 61,
-  66: 71,
-  67: 71,
-  71: 71,
-  73: 71,
-  75: 75,
-  77: 71,
-  80: 80,
-  81: 80,
-  82: 95,
-  85: 71,
-  86: 75,
-  95: 95,
-  96: 95,
-  99: 95
-};
+export * from './weatherNormalization';
 
-export function normalizeWeatherCode(code: unknown): number {
-  const parsed = typeof code === 'number' ? code : Number(code);
-  if (!Number.isFinite(parsed) || !Number.isInteger(parsed) || parsed < 0) {
-    return NaN;
-  }
-  return WEATHER_CODE_NORMALIZATION[parsed] ?? parsed;
-}
+import {
+  normalizeWeatherCode,
+  WEATHER_CODES,
+  WEATHER_CODE_NORMALIZATION
+} from './weatherNormalization';
 
-// WMO Weather interpretation codes
-export const WEATHER_CODES: Record<number, { description: string; icon: string }> = {
-  0: { description: 'Clear sky', icon: '☀️' },
-  1: { description: 'Mainly clear', icon: '🌤️' },
-  2: { description: 'Partly cloudy', icon: '⛅' },
-  3: { description: 'Overcast', icon: '☁️' },
-  45: { description: 'Fog', icon: '🌫️' },
-  48: { description: 'Depositing rime fog', icon: '🌫️' },
-  51: { description: 'Light drizzle', icon: '🌧️' },
-  53: { description: 'Moderate drizzle', icon: '🌧️' },
-  55: { description: 'Dense drizzle', icon: '🌧️' },
-  56: { description: 'Light freezing drizzle', icon: '🌨️' },
-  57: { description: 'Dense freezing drizzle', icon: '🌨️' },
-  61: { description: 'Rain', icon: '🌧️' },
-  63: { description: 'Moderate rain', icon: '🌧️' },
-  65: { description: 'Heavy rain', icon: '🌧️' },
-  66: { description: 'Light freezing rain', icon: '🌨️' },
-  67: { description: 'Heavy freezing rain', icon: '🌨️' },
-  71: { description: 'Snow', icon: '🌨️' },
-  73: { description: 'Moderate snow', icon: '🌨️' },
-  75: { description: 'Heavy snow', icon: '❄️' },
-  77: { description: 'Snow grains', icon: '🌨️' },
-  80: { description: 'Rain showers', icon: '🌦️' },
-  81: { description: 'Moderate rain showers', icon: '🌦️' },
-  82: { description: 'Violent rain showers', icon: '⛈️' },
-  85: { description: 'Slight snow showers', icon: '🌨️' },
-  86: { description: 'Heavy snow showers', icon: '❄️' },
-  95: { description: 'Thunderstorm', icon: '⛈️' },
-  96: { description: 'Thunderstorm with slight hail', icon: '⛈️' },
-  99: { description: 'Thunderstorm with heavy hail', icon: '⛈️' }
-};
 
 // Fetch forecast from a single model
 async function fetchModelForecast(
@@ -891,7 +716,7 @@ async function fetchModelForecast(
 
   try {
     const response = await fetch(`${model.endpoint}?${params}`);
-    
+
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}: ${response.statusText}`);
     }
@@ -901,32 +726,34 @@ async function fetchModelForecast(
     const data = await response.json();
 
     // Parse hourly data
-    const hourly: HourlyForecast[] = data.hourly.time.map((time: string, i: number) => ({
-      time,
-      temperature: data.hourly.temperature_2m[i],
-      precipitation: data.hourly.precipitation[i] ?? 0,
-      precipitationProbability: data.hourly.precipitation_probability?.[i] ?? 0,
-      windSpeed: data.hourly.wind_speed_10m[i],
-      windDirection: data.hourly.wind_direction_10m[i],
-      windGusts: data.hourly.wind_gusts_10m[i],
-      cloudCover: data.hourly.cloud_cover[i],
-      humidity: data.hourly.relative_humidity_2m[i],
-      pressure: data.hourly.pressure_msl[i],
-      weatherCode: normalizeWeatherCode(data.hourly.weather_code[i])
+    const hourTimes = (data as any).hourly?.time || [];
+    const hourly: HourlyForecast[] = hourTimes.map((time: string, i: number) => ({
+      time: time,
+      temperature: (data as any).hourly.temperature_2m[i],
+      precipitation: (data as any).hourly.precipitation[i] ?? 0,
+      precipitationProbability: (data as any).hourly.precipitation_probability?.[i] ?? 0,
+      windSpeed: (data as any).hourly.wind_speed_10m[i],
+      windDirection: (data as any).hourly.wind_direction_10m[i],
+      windGusts: (data as any).hourly.wind_gusts_10m[i],
+      cloudCover: (data as any).hourly.cloud_cover[i],
+      humidity: (data as any).hourly.relative_humidity_2m[i],
+      pressure: (data as any).hourly.pressure_msl[i],
+      weatherCode: normalizeWeatherCode((data as any).hourly.weather_code[i])
     }));
 
     // Parse daily data
-    const daily: DailyForecast[] = data.daily.time.map((date: string, i: number) => ({
-      date,
-      temperatureMax: data.daily.temperature_2m_max[i],
-      temperatureMin: data.daily.temperature_2m_min[i],
-      precipitationSum: data.daily.precipitation_sum[i] ?? 0,
-      precipitationProbabilityMax: data.daily.precipitation_probability_max?.[i] ?? 0,
-      windSpeedMax: data.daily.wind_speed_10m_max[i],
-      windGustsMax: data.daily.wind_gusts_10m_max[i],
-      weatherCode: normalizeWeatherCode(data.daily.weather_code[i]),
-      sunrise: data.daily.sunrise[i],
-      sunset: data.daily.sunset[i]
+    const dayTimes = (data as any).daily?.time || [];
+    const daily: DailyForecast[] = dayTimes.map((date: string, i: number) => ({
+      date: date,
+      temperatureMax: (data as any).daily.temperature_2m_max[i],
+      temperatureMin: (data as any).daily.temperature_2m_min[i],
+      precipitationSum: (data as any).daily.precipitation_sum[i] ?? 0,
+      precipitationProbabilityMax: (data as any).daily.precipitation_probability_max?.[i] ?? 0,
+      windSpeedMax: (data as any).daily.wind_speed_10m_max[i],
+      windGustsMax: (data as any).daily.wind_gusts_10m_max[i],
+      weatherCode: normalizeWeatherCode((data as any).daily.weather_code[i]),
+      sunrise: (data as any).daily.sunrise[i],
+      sunset: (data as any).daily.sunset[i]
     }));
 
     return {
@@ -1482,9 +1309,9 @@ export async function searchLocations(query: string): Promise<Location[]> {
     const response = await fetch(`https://geocoding-api.open-meteo.com/v1/search?${params}`);
     const data = await response.json();
 
-    if (!data.results) return [];
+    if (!(data as any).results) return [];
 
-    return data.results.map((r: any) => ({
+    return (data as any).results.map((r: any) => ({
       name: r.name,
       latitude: r.latitude,
       longitude: r.longitude,

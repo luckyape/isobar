@@ -68,7 +68,7 @@ const CATEGORIES: Array<{
     ariaLabel: string;
 }> = [
         { key: 'temperature', label: 'Temperature', shortLabel: 'Temp', icon: Thermometer, ariaLabel: 'Open temperature agreement details for this hour' },
-        { key: 'precipitation', label: 'Precipitation', shortLabel: 'Precip', icon: Droplets, ariaLabel: 'Open precipitation agreement details for this hour' },
+        { key: 'precipitation', label: 'Precipitation (POP + amount)', shortLabel: 'Precip', icon: Droplets, ariaLabel: 'Open precipitation agreement details for this hour' },
         { key: 'wind', label: 'Wind', shortLabel: 'Wind', icon: Wind, ariaLabel: 'Open wind agreement details for this hour' },
         { key: 'conditions', label: 'Conditions', shortLabel: 'Cond', icon: Cloud, ariaLabel: 'Open conditions agreement details for this hour' },
     ];

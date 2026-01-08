@@ -83,13 +83,13 @@ export function HourlyWeatherBugCard({
 
   // Build gradient style matching ModelBreakdownPanel pattern
   const cardStyle = accentColor
-    ? { background: `linear-gradient(135deg, ${withAlpha(accentColor, isPast ? 0.02 : 0.06)}, oklch(0.12 0.02 240))` }
+    ? { background: `linear-gradient(135deg, ${withAlpha(accentColor, isPast ? 0.02 : 0.06)}, var(--background))` }
     : undefined;
 
   return (
     <div
       className={cn(
-        'relative overflow-hidden rounded-lg border border-white/10 bg-[oklch(0.12_0.02_240)] px-3 py-3 transition-opacity',
+        'relative overflow-hidden rounded-lg border border-white/10 bg-background px-3 py-3 transition-opacity',
         isCurrent && 'border-white/20 bg-white/[0.04]',
         isPast && 'opacity-50 grayscale-[30%]',
         className
@@ -110,7 +110,7 @@ export function HourlyWeatherBugCard({
         <div className="flex min-w-0 items-center gap-3">
           {/* Time label + Now badge */}
           <div className="flex items-center gap-2">
-            <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-foreground/70 whitespace-nowrap">
+            <span className="text-[10px] font-semibold uppercase tracking-caps text-foreground/70 whitespace-nowrap">
               {fullLabel}
             </span>
             {isCurrent && (

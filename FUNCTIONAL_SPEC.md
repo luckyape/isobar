@@ -119,29 +119,51 @@ For each time step (hour) and day, the application calculates:
 
 **Temperature Agreement:**
 ```
-stdDev = standard deviation of all model temperatures
-agreement_score = 100 × (1 - (stdDev / expected_range))
-expected_range = 10°C (typical model spread for temperature)
+stdDev = population standard deviation of all model temperatures
+spread_estimate = 2 × stdDev
+agreement_score = clamp(100 × (1 - (spread_estimate / expected_spread)), 0, 100)
+expected_spread = 10°C (typical max-to-min model spread for temperature)
 ```
 
 **Precipitation Agreement:**
 ```
-stdDev = standard deviation of precipitation amounts
-agreement_score = 100 × (1 - (stdDev / expected_range))
-expected_range = 5mm (typical model spread)
+// Amount agreement (hourly: mm/hr, daily: mm/day)
+stdDev_amount = population standard deviation of precipitation amounts
+spread_estimate_amount = 2 × stdDev_amount
+amount_agreement = clamp(100 × (1 - (spread_estimate_amount / expected_spread_amount)), 0, 100)
+
+// Probability agreement (hourly POP %, daily max POP %)
+stdDev_pop = population standard deviation of precipitation probabilities
+spread_estimate_pop = 2 × stdDev_pop
+pop_agreement = clamp(100 × (1 - (spread_estimate_pop / expected_spread_pop)), 0, 100)
+
+// Combined precipitation agreement (used in overall scores)
+precip_agreement = (0.5 × amount_agreement) + (0.5 × pop_agreement)
+expected_spread_amount = 5mm/hr (hourly) or 15mm/day (daily)
+expected_spread_pop = 30%
 ```
 
 **Wind Speed Agreement:**
 ```
-stdDev = standard deviation of wind speeds
-agreement_score = 100 × (1 - (stdDev / expected_range))
-expected_range = 15 km/h
+stdDev = population standard deviation of wind speeds
+spread_estimate = 2 × stdDev
+agreement_score = clamp(100 × (1 - (spread_estimate / expected_spread)), 0, 100)
+expected_spread = 15 km/h
 ```
 
 **Wind Direction Agreement (circular):**
 - Uses circular statistics (not linear) because direction wraps at 360°
-- Calculates angular standard deviation
-- Scores agreement based on directional clustering
+- Calculates circular angular standard deviation
+- Uses the same numeric agreement mapping with `expected_spread = 45°`
+- Note: wind-direction agreement is computed for display/debugging but is not currently included in the overall hourly agreement weighting
+
+**Cloud Cover Agreement:**
+```
+stdDev = population standard deviation of cloud cover percentages
+spread_estimate = 2 × stdDev
+agreement_score = clamp(100 × (1 - (spread_estimate / expected_spread)), 0, 100)
+expected_spread = 30% cloud cover
+```
 
 **Weather Condition Agreement:**
 ```
@@ -157,6 +179,7 @@ overall = (0.30 × temp_agreement) +
           (0.15 × condition_agreement) +
           (0.10 × cloud_agreement)
 ```
+Note: In implementation, this is computed as a weighted average across *available* metrics (requires ≥2 model values per metric), with weights renormalized to sum to 1 across the included metrics.
 
 **Overall Daily Agreement:**
 ```
@@ -166,6 +189,11 @@ overall = (0.25 × max_temp_agreement) +
           (0.15 × wind_agreement) +
           (0.10 × condition_agreement)
 ```
+Daily expected spreads (implementation):
+- max temp expected_spread = 8°C
+- min temp expected_spread = 8°C
+- precip sum expected_spread = 15mm/day
+- max wind expected_spread = 20 km/h
 
 **Overall Forecast Agreement (7-day):**
 ```
@@ -174,6 +202,7 @@ overall = (0.35 × avg_temperature_agreement) +
           (0.20 × avg_wind_agreement) +
           (0.15 × avg_condition_agreement)
 ```
+Note: In implementation, this is computed from the daily consensus series and uses the same availability + weight renormalization rules described above.
 
 **Rationale for weighting:**
 - **Temperature (35% overall):** Most important for user planning; most models agree on temperature
@@ -614,7 +643,7 @@ Each card displays:
 {
   time: string              // ISO 8601 local timestamp (no offset; use location timezone)
   temperature: number       // Celsius
-  precipitation: number     // mm
+  precipitation: number     // mm/hr
   precipitationProbability: number  // 0-100%
   windSpeed: number         // km/h
   windDirection: number     // 0-360 degrees
@@ -632,7 +661,7 @@ Each card displays:
   date: string              // YYYY-MM-DD (local date in location timezone)
   temperatureMax: number    // Celsius
   temperatureMin: number    // Celsius
-  precipitationSum: number  // mm
+  precipitationSum: number  // mm/day
   precipitationProbabilityMax: number  // 0-100%
   windSpeedMax: number      // km/h
   windGustsMax: number      // km/h

@@ -1,0 +1,36 @@
+{
+    "artifact": {
+        "schemaVersion": 1,
+        "type": "forecast",
+        "model": "gem_seamless",
+        "runTime": "2026-01-08T00:00:00Z",
+        "issuedAt": 1736294400,
+        "validTimes": [
+            "2026-01-08T00:00:00Z",
+            "2026-01-08T01:00:00Z"
+        ],
+        "variables": [
+            "temperature_2m",
+            "precipitation"
+        ],
+        "grid": {
+            "type": "point",
+            "lat": 43.6532,
+            "lon": -79.3832
+        },
+        "data": {
+            "temperature_2m": [
+                -5.2,
+                -4.8
+            ],
+            "precipitation": [
+                0.0,
+                0.1
+            ]
+        },
+        "source": "open-meteo"
+    },
+    "canonicalMsgPackHex": "8aa46461746182ad70726563697069746174696f6e9200cb3fb999999999999aae74656d70657261747572655f326d92cbc014cccccccccccdcbc013333333333333a46772696483a36c6174cb4045d39c0ebedfa4a36c6f6ecbc053d886594af4f1a474797065a5706f696e74a86973737565644174ce677dc000a56d6f64656cac67656d5f7365616d6c657373a772756e54696d65b4323032362d30312d30385430303a30303a30305aad736368656d6156657273696f6e01a6736f75726365aa6f70656e2d6d6574656fa474797065a8666f726563617374aa76616c696454696d657392b4323032362d30312d30385430303a30303a30305ab4323032362d30312d30385430313a30303a30305aa97661726961626c657392ae74656d70657261747572655f326dad70726563697069746174696f6e",
+    "expectedArtifactId": "79f98115b8000658f781fff487227be63de79a0ca14922aa8c0cc5cf62026560",
+    "notes": "Canonical representation uses sorted keys and no compression for identity hash."
+}

@@ -193,6 +193,9 @@ describe('forecast gating', () => {
   });
 
   it('continues to fetch when metadata endpoints fail', async () => {
+    // Suppress expected error log
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => { });
+
     mockFetch.mockImplementationOnce(async (url: string) => {
       if (url.includes('/data/')) {
         return {
@@ -214,5 +217,6 @@ describe('forecast gating', () => {
     });
 
     expect(getGatingStats().forecastCalls).toBeGreaterThan(0);
+    consoleError.mockRestore();
   });
 });

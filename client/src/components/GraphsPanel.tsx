@@ -41,7 +41,6 @@ import {
 } from '@/lib/timeUtils';
 import {
   buildHourlyForecastMap,
-  buildPrecipMedianConsensus,
   getPrecipIntensityColor
 } from '@/lib/graphUtils';
 import {
@@ -59,7 +58,7 @@ import {
   ComparisonTooltipRow,
   ComparisonTooltipSection
 } from '@/components/ComparisonTooltip';
-import { useIsMobile } from '@/hooks/useMobile';
+import { useIsMobile } from '@/hooks/useMediaQuery';
 import { cn } from '@/lib/utils';
 
 type GraphKey = 'temperature' | 'precipitation' | 'wind' | 'conditions';
@@ -153,6 +152,11 @@ function formatTemp(value?: number | null): string {
 }
 
 function formatPop(value?: number | null): string {
+  if (!Number.isFinite(value ?? NaN)) return '--';
+  return `${Math.round(value as number)}%`;
+}
+
+function formatAgreement(value?: number | null): string {
   if (!Number.isFinite(value ?? NaN)) return '--';
   return `${Math.round(value as number)}%`;
 }
@@ -297,13 +301,13 @@ function TemperatureTable({
 function PrecipitationTable({
   timeSlots,
   modelHourlyById,
-  precipConsensusByTime,
+  consensusByTime,
   showConsensus,
   observedPrecipByTime
 }: {
   timeSlots: TimeSlot[];
   modelHourlyById: Map<string, Map<string, ModelForecast['hourly'][number]>>;
-  precipConsensusByTime: Map<string, { pop: number | null; intensity: number | null }>;
+  consensusByTime: Map<string, HourlyConsensus>;
   showConsensus: boolean;
   observedPrecipByTime: Map<string, number>;
 }) {
@@ -343,18 +347,18 @@ function PrecipitationTable({
           )}
         </TableRow>
       </TableHeader>
-	      <TableBody>
-	        {timeSlots.map((slot) => (
-	          <TableRow key={slot.time}>
-	            <TableCell className="text-xs text-foreground/70">
-	              {slot.fullLabel}
-	            </TableCell>
-	            {WEATHER_MODELS.flatMap((model) => {
-	              const sourceTimeKey = shiftOpenMeteoDateTimeKey(slot.time, -1) ?? slot.time;
-	              const hour = modelHourlyById.get(model.id)?.get(sourceTimeKey);
-	              const pop = hour?.precipitationProbability;
-	              const intensity = hour?.precipitation;
-	              return [
+      <TableBody>
+        {timeSlots.map((slot) => (
+          <TableRow key={slot.time}>
+            <TableCell className="text-xs text-foreground/70">
+              {slot.fullLabel}
+            </TableCell>
+            {WEATHER_MODELS.flatMap((model) => {
+              const sourceTimeKey = shiftOpenMeteoDateTimeKey(slot.time, -1) ?? slot.time;
+              const hour = modelHourlyById.get(model.id)?.get(sourceTimeKey);
+              const pop = hour?.precipitationProbability;
+              const intensity = hour?.precipitation;
+              return [
                 <TableCell
                   key={`${model.id}-${slot.time}-pop`}
                   className="font-mono tabular-nums"
@@ -369,16 +373,28 @@ function PrecipitationTable({
                 </TableCell>
               ];
             })}
-	            {showConsensus && (
-	              <>
-	                <TableCell className="font-mono tabular-nums">
-	                  {formatPop(precipConsensusByTime.get(shiftOpenMeteoDateTimeKey(slot.time, -1) ?? slot.time)?.pop ?? null)}
-	                </TableCell>
-	                <TableCell className="font-mono tabular-nums">
-	                  {formatIntensity(precipConsensusByTime.get(shiftOpenMeteoDateTimeKey(slot.time, -1) ?? slot.time)?.intensity ?? null)}
-	                </TableCell>
-	              </>
-	            )}
+            {showConsensus && (
+              <>
+                <TableCell className="font-mono tabular-nums">
+                  {formatPop(
+                    consensusByTime.get(shiftOpenMeteoDateTimeKey(slot.time, -1) ?? slot.time)
+                      ?.precipitationProbability.available === false
+                      ? null
+                      : consensusByTime.get(shiftOpenMeteoDateTimeKey(slot.time, -1) ?? slot.time)
+                        ?.precipitationProbability.mean
+                  )}
+                </TableCell>
+                <TableCell className="font-mono tabular-nums">
+                  {formatIntensity(
+                    consensusByTime.get(shiftOpenMeteoDateTimeKey(slot.time, -1) ?? slot.time)
+                      ?.precipitation.available === false
+                      ? null
+                      : consensusByTime.get(shiftOpenMeteoDateTimeKey(slot.time, -1) ?? slot.time)
+                        ?.precipitation.mean
+                  )}
+                </TableCell>
+              </>
+            )}
             {hasObserved && (
               <TableCell className="font-mono tabular-nums">
                 {formatIntensity(observedPrecipByTime.get(slot.time))}
@@ -395,7 +411,6 @@ function PrecipitationComparisonGraph({
   timeSlots,
   modelHourlyById,
   modelAvailability,
-  precipConsensusByTime,
   consensusByTime,
   showConsensus,
   observedPrecipByTime,
@@ -405,7 +420,6 @@ function PrecipitationComparisonGraph({
   timeSlots: TimeSlot[];
   modelHourlyById: Map<string, Map<string, ModelForecast['hourly'][number]>>;
   modelAvailability: Map<string, boolean>;
-  precipConsensusByTime: Map<string, { pop: number | null; intensity: number | null }>;
   consensusByTime: Map<string, HourlyConsensus>;
   showConsensus: boolean;
   observedPrecipByTime: Map<string, number>;
@@ -443,14 +457,14 @@ function PrecipitationComparisonGraph({
     return list;
   }, [modelAvailability, observedPrecipByTime, showConsensus]);
 
-	  const tooltipColumns = useMemo(() => {
-	    return timeSlots.map((slot) => {
-	      const models = WEATHER_MODELS.map((model) => {
-	        const sourceTimeKey = shiftOpenMeteoDateTimeKey(slot.time, -1) ?? slot.time;
-	        const hour = modelHourlyById.get(model.id)?.get(sourceTimeKey);
-	        const normalizedCode = normalizeWeatherCode(hour?.weatherCode);
-	        return {
-	          id: model.id,
+  const tooltipColumns = useMemo(() => {
+    return timeSlots.map((slot) => {
+      const models = WEATHER_MODELS.map((model) => {
+        const sourceTimeKey = shiftOpenMeteoDateTimeKey(slot.time, -1) ?? slot.time;
+        const hour = modelHourlyById.get(model.id)?.get(sourceTimeKey);
+        const normalizedCode = normalizeWeatherCode(hour?.weatherCode);
+        return {
+          id: model.id,
           name: model.name,
           color: model.color,
           pop: Number.isFinite(hour?.precipitationProbability)
@@ -460,24 +474,29 @@ function PrecipitationComparisonGraph({
             ? hour?.precipitation ?? null
             : null,
           weatherCode: Number.isFinite(normalizedCode) ? normalizedCode : null,
-	          available: modelAvailability.get(model.id) ?? false
-	        };
-	      });
-	      const sourceTimeKey = shiftOpenMeteoDateTimeKey(slot.time, -1) ?? slot.time;
-	      const consensusMetrics = showConsensus
-	        ? precipConsensusByTime.get(sourceTimeKey) ?? null
-	        : null;
-	      const normalizedConsensusCode = showConsensus
-	        ? normalizeWeatherCode(consensusByTime.get(sourceTimeKey)?.weatherCode.dominant)
-	        : NaN;
-	      const consensus = showConsensus
-	        ? {
-	            pop: consensusMetrics?.pop ?? null,
-            intensity: consensusMetrics?.intensity ?? null,
-            weatherCode: Number.isFinite(normalizedConsensusCode)
-              ? normalizedConsensusCode
-              : null
-          }
+          available: modelAvailability.get(model.id) ?? false
+        };
+      });
+      const sourceTimeKey = shiftOpenMeteoDateTimeKey(slot.time, -1) ?? slot.time;
+      const consensusData = showConsensus ? consensusByTime.get(sourceTimeKey) : null;
+      const normalizedConsensusCode = showConsensus
+        ? normalizeWeatherCode(consensusData?.weatherCode.dominant)
+        : NaN;
+      const consensus = showConsensus
+        ? {
+          pop: consensusData?.precipitationProbability.available === false
+            ? null
+            : consensusData?.precipitationProbability.mean ?? null,
+          intensity: consensusData?.precipitation.available === false
+            ? null
+            : consensusData?.precipitation.mean ?? null,
+          weatherCode: Number.isFinite(normalizedConsensusCode)
+            ? normalizedConsensusCode
+            : null,
+          agreement: consensusData?.precipitationCombined.agreement ?? null,
+          amountAgreement: consensusData?.precipitation.agreement ?? null,
+          probabilityAgreement: consensusData?.precipitationProbability.agreement ?? null
+        }
         : null;
       const observed = observedPrecipByTime.get(slot.time);
       return {
@@ -492,7 +511,6 @@ function PrecipitationComparisonGraph({
     modelHourlyById,
     modelAvailability,
     consensusByTime,
-    precipConsensusByTime,
     observedPrecipByTime,
     showConsensus
   ]);
@@ -535,12 +553,12 @@ function PrecipitationComparisonGraph({
         </div>
         <div className="flex-1 overflow-x-auto">
           <div className="flex min-w-max">
-	            {timeSlots.map((slot, index) => {
-	              const isActive = hoverIndex === index;
-	              const isCurrent = slot.time === nowMarkerTimeKey;
-	              const tooltip = tooltipColumns[index];
-	              const consensusWeatherInfo = getWeatherInfo(tooltip.consensus?.weatherCode);
-	              return (
+            {timeSlots.map((slot, index) => {
+              const isActive = hoverIndex === index;
+              const isCurrent = slot.time === nowMarkerTimeKey;
+              const tooltip = tooltipColumns[index];
+              const consensusWeatherInfo = getWeatherInfo(tooltip.consensus?.weatherCode);
+              return (
                 <Tooltip key={slot.time}>
                   <TooltipTrigger asChild>
                     <div
@@ -557,14 +575,14 @@ function PrecipitationComparisonGraph({
                       tabIndex={0}
                       aria-label={`Precipitation column ${slot.fullLabel}`}
                     >
-	                      {isCurrent && (
-	                        <div
-	                          className="absolute inset-y-0 right-0 w-px bg-primary/60 pointer-events-none"
-	                          style={{
-	                            boxShadow: '0 0 10px oklch(0.75 0.15 195 / 0.35)'
-	                          }}
-	                        />
-	                      )}
+                      {isCurrent && (
+                        <div
+                          className="absolute inset-y-0 right-0 w-px bg-primary/60 pointer-events-none"
+                          style={{
+                            boxShadow: '0 0 10px oklch(0.75 0.15 195 / 0.35)'
+                          }}
+                        />
+                      )}
                       <div
                         className={cn(
                           "h-6 w-full text-[10px] flex items-center justify-center text-foreground/70",
@@ -572,58 +590,61 @@ function PrecipitationComparisonGraph({
                         )}
                       >
                         {index % labelInterval === 0 ? slot.label : ''}
-	                      </div>
-	                      {rows.map((row) => {
-	                        const sourceTimeKey = shiftOpenMeteoDateTimeKey(slot.time, -1) ?? slot.time;
-	                        let pop: number | null = null;
-	                        let intensity: number | null = null;
-	                        let weatherCode: number | null = null;
-	                        let tintColor: string | undefined;
-	                        let rowGlowColor: string | undefined;
-	                        let isObserved = false;
-	                        const isConsensusRow = row.type === 'consensus';
-	                        let temperature: number | null = null;
-	                        if (row.type === 'model') {
-	                          rowGlowColor = row.color;
-	                          const hour = modelHourlyById.get(row.id)?.get(sourceTimeKey);
-	                          pop = Number.isFinite(hour?.precipitationProbability)
-	                            ? hour?.precipitationProbability ?? null
-	                            : null;
-	                          intensity = Number.isFinite(hour?.precipitation)
-	                            ? hour?.precipitation ?? null
-	                            : null;
-	                          const normalizedCode = normalizeWeatherCode(hour?.weatherCode);
-	                          weatherCode = Number.isFinite(normalizedCode) ? normalizedCode : null;
-	                          temperature = hour?.temperature ?? null;
-	                        } else if (row.type === 'consensus') {
-	                          rowGlowColor = 'oklch(0.75 0.15 195)';
-	                          const consensus = precipConsensusByTime.get(sourceTimeKey);
-	                          pop = consensus?.pop ?? null;
-	                          intensity = consensus?.intensity ?? null;
-	                          // Use dominant weather code from consensus for precip type
-	                          const consensusData = consensusByTime.get(sourceTimeKey);
-	                          const normalizedCode = normalizeWeatherCode(consensusData?.weatherCode.dominant);
-	                          weatherCode = Number.isFinite(normalizedCode) ? normalizedCode : null;
-	                          temperature = consensusData?.temperature.mean ?? null;
-	                          const agreement = consensusData?.precipitation.agreement;
+                      </div>
+                      {rows.map((row) => {
+                        const sourceTimeKey = shiftOpenMeteoDateTimeKey(slot.time, -1) ?? slot.time;
+                        let pop: number | null = null;
+                        let intensity: number | null = null;
+                        let weatherCode: number | null = null;
+                        let tintColor: string | undefined;
+                        let rowGlowColor: string | undefined;
+                        let isObserved = false;
+                        const isConsensusRow = row.type === 'consensus';
+                        let temperature: number | null = null;
+                        if (row.type === 'model') {
+                          rowGlowColor = row.color;
+                          const hour = modelHourlyById.get(row.id)?.get(sourceTimeKey);
+                          pop = Number.isFinite(hour?.precipitationProbability)
+                            ? hour?.precipitationProbability ?? null
+                            : null;
+                          intensity = Number.isFinite(hour?.precipitation)
+                            ? hour?.precipitation ?? null
+                            : null;
+                          const normalizedCode = normalizeWeatherCode(hour?.weatherCode);
+                          weatherCode = Number.isFinite(normalizedCode) ? normalizedCode : null;
+                          temperature = hour?.temperature ?? null;
+                        } else if (row.type === 'consensus') {
+                          rowGlowColor = 'oklch(0.75 0.15 195)';
+                          const consensusData = consensusByTime.get(sourceTimeKey);
+                          pop = consensusData?.precipitationProbability.available === false
+                            ? null
+                            : consensusData?.precipitationProbability.mean ?? null;
+                          intensity = consensusData?.precipitation.available === false
+                            ? null
+                            : consensusData?.precipitation.mean ?? null;
+                          // Use dominant weather code from consensus for precip type
+                          const normalizedCode = normalizeWeatherCode(consensusData?.weatherCode.dominant);
+                          weatherCode = Number.isFinite(normalizedCode) ? normalizedCode : null;
+                          temperature = consensusData?.temperature.mean ?? null;
+                          const agreement = consensusData?.precipitationCombined.agreement;
                           if (Number.isFinite(agreement)) {
                             const alpha = Math.min(0.18, (agreement as number) / 600);
                             if (alpha > 0) {
                               tintColor = `oklch(0.75 0.15 195 / ${alpha})`;
                             }
                           }
-	                        } else if (row.type === 'observed') {
-	                          isObserved = true;
-	                          intensity = observedPrecipByTime.get(slot.time) ?? null;
-	                          // For observed, try to get consensus temperature as fallback
-	                          temperature = consensusByTime.get(sourceTimeKey)?.temperature.mean ?? null;
-	                        }
+                        } else if (row.type === 'observed') {
+                          isObserved = true;
+                          intensity = observedPrecipByTime.get(slot.time) ?? null;
+                          // For observed, try to get consensus temperature as fallback
+                          temperature = consensusByTime.get(sourceTimeKey)?.temperature.mean ?? null;
+                        }
 
                         // Determine precipitation type from weather code, with temperature fallback
-	                        const precipType = getPrecipTypeFromWeatherCode(weatherCode, temperature);
-	                        const hideObservedFuture = isObserved
-	                          && Boolean(observedCutoffTimeKey)
-	                          && slot.time > (observedCutoffTimeKey as string);
+                        const precipType = getPrecipTypeFromWeatherCode(weatherCode, temperature);
+                        const hideObservedFuture = isObserved
+                          && Boolean(observedCutoffTimeKey)
+                          && slot.time > (observedCutoffTimeKey as string);
 
                         return (
                           <div
@@ -678,6 +699,18 @@ function PrecipitationComparisonGraph({
                                 )}
                               </span>
                             }
+                          />
+                          <ComparisonTooltipRow
+                            label="Precip agreement"
+                            value={formatAgreement(tooltip.consensus?.agreement ?? null)}
+                          />
+                          <ComparisonTooltipRow
+                            label="POP agreement"
+                            value={formatAgreement(tooltip.consensus?.probabilityAgreement ?? null)}
+                          />
+                          <ComparisonTooltipRow
+                            label="Amount agreement"
+                            value={formatAgreement(tooltip.consensus?.amountAgreement ?? null)}
                           />
                         </ComparisonTooltipSection>
                       )}
@@ -841,11 +874,11 @@ function ConditionsComparisonGraph({
         : NaN;
       const consensus = showConsensus
         ? {
-            weatherCode: Number.isFinite(normalizedConsensusCode)
-              ? normalizedConsensusCode
-              : null,
-            agreement: consensusData?.weatherCode.agreement
-          }
+          weatherCode: Number.isFinite(normalizedConsensusCode)
+            ? normalizedConsensusCode
+            : null,
+          agreement: consensusData?.weatherCode.agreement
+        }
         : null;
       const observed = hasObserved ? observedConditionsByTime.get(slot.time) ?? null : null;
       return {
@@ -1134,11 +1167,11 @@ function PrecipCell({
 
   const glowStyle = rowGlowColor && !isDisabled
     ? {
-        boxShadow: `0 0 0 1px ${withAlpha(rowGlowColor, 0.1)}, 0 0 10px ${withAlpha(
-          rowGlowColor,
-          0.08
-        )}`
-      }
+      boxShadow: `0 0 0 1px ${withAlpha(rowGlowColor, 0.1)}, 0 0 10px ${withAlpha(
+        rowGlowColor,
+        0.08
+      )}`
+    }
     : undefined;
 
   return (
@@ -1165,7 +1198,7 @@ function PrecipCell({
 
         {/* Subtle tint overlay (used for row glow and consensus agreement shading) */}
         {overlayTint && <rect width={size} height={size} fill={overlayTint} />}
-        
+
         {/* Rain pattern overlay */}
         {patternId && (
           <rect
@@ -1175,7 +1208,7 @@ function PrecipCell({
             opacity={isDisabled ? 0.4 : 1}
           />
         )}
-        
+
         {/* POP arc overlay */}
         {clampedPop > 0 && (
           <>
@@ -1203,7 +1236,7 @@ function PrecipCell({
             />
           </>
         )}
-        
+
         {/* Center dot for high POP + intensity */}
         {clampedPop >= 85 && hasIntensity && (
           <circle
@@ -1236,11 +1269,11 @@ function ConditionCell({
   const baseBg = 'oklch(0.12 0.02 240)';
   const glowStyle = rowGlowColor && !isDisabled
     ? {
-        boxShadow: `0 0 0 1px ${withAlpha(rowGlowColor, 0.1)}, 0 0 10px ${withAlpha(
-          rowGlowColor,
-          0.08
-        )}`
-      }
+      boxShadow: `0 0 0 1px ${withAlpha(rowGlowColor, 0.1)}, 0 0 10px ${withAlpha(
+        rowGlowColor,
+        0.08
+      )}`
+    }
     : undefined;
 
   const agreementValue = Number.isFinite(agreement ?? NaN) ? (agreement as number) : null;
@@ -1286,7 +1319,7 @@ export function GraphsPanel({
   observations = [],
   timezone,
   visibleLines = {},
-  onToggleLine = () => {}
+  onToggleLine = () => { }
 }: GraphsPanelProps) {
   const [activeGraph, setActiveGraph] = useState<GraphKey>('temperature');
   const [viewMode, setViewMode] = useState<ViewMode>('chart');
@@ -1328,16 +1361,16 @@ export function GraphsPanel({
     });
   }, [windowTimes]);
 
-	  const { precipNowMarkerTimeKey, precipObservedCutoffTimeKey } = useMemo(() => {
-	    if (!currentTimeKey) {
-	      return { precipNowMarkerTimeKey: null as string | null, precipObservedCutoffTimeKey: null as string | null };
-	    }
+  const { precipNowMarkerTimeKey, precipObservedCutoffTimeKey } = useMemo(() => {
+    if (!currentTimeKey) {
+      return { precipNowMarkerTimeKey: null as string | null, precipObservedCutoffTimeKey: null as string | null };
+    }
 
-	    return {
-	      precipNowMarkerTimeKey: currentTimeKey,
-	      precipObservedCutoffTimeKey: currentTimeKey
-	    };
-	  }, [currentTimeKey]);
+    return {
+      precipNowMarkerTimeKey: currentTimeKey,
+      precipObservedCutoffTimeKey: currentTimeKey
+    };
+  }, [currentTimeKey]);
 
   const modelHourlyById = useMemo(
     () => buildHourlyForecastMap(forecasts),
@@ -1358,15 +1391,6 @@ export function GraphsPanel({
   const consensusByTime = useMemo(
     () => new Map(consensus.map((hour) => [hour.time, hour])),
     [consensus]
-  );
-
-  const precipConsensusByTime = useMemo(
-    () => buildPrecipMedianConsensus(
-      windowTimes,
-      WEATHER_MODELS.map((model) => model.id),
-      modelHourlyById
-    ),
-    [windowTimes, modelHourlyById]
   );
 
   const observedTempByTime = useMemo(() => {
@@ -1592,7 +1616,7 @@ export function GraphsPanel({
             <PrecipitationTable
               timeSlots={precipTimeSlots}
               modelHourlyById={modelHourlyById}
-              precipConsensusByTime={precipConsensusByTime}
+              consensusByTime={consensusByTime}
               showConsensus={showConsensus}
               observedPrecipByTime={observedPrecipByTime}
             />
@@ -1601,7 +1625,6 @@ export function GraphsPanel({
               timeSlots={precipTimeSlots}
               modelHourlyById={modelHourlyById}
               modelAvailability={modelAvailability}
-              precipConsensusByTime={precipConsensusByTime}
               consensusByTime={consensusByTime}
               showConsensus={showConsensus}
               observedPrecipByTime={observedPrecipByTime}

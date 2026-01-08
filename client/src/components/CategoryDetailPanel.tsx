@@ -118,7 +118,7 @@ export function CategoryDetailPanel({
         {modelEntries.map((entry) => {
           const tint = entry.color ? withAlpha(entry.color, 0.12) : undefined;
           const cardStyle = tint
-            ? { background: `linear-gradient(135deg, ${tint}, oklch(0.12 0.02 240))` }
+            ? { background: `linear-gradient(135deg, ${tint}, var(--background))` }
             : undefined;
           const weatherInfo = Number.isFinite(entry.hour?.weatherCode ?? NaN)
             ? (WEATHER_CODES[entry.hour?.weatherCode as number] || { description: 'Unknown', icon: '❓' })
@@ -168,8 +168,8 @@ export function CategoryDetailPanel({
             </span>
           ) : null;
           const cardClassName = cn(
-            'relative rounded-lg sm:rounded-xl border border-white/10 bg-white/[0.02] p-2.5 sm:p-4 text-foreground/90 flex flex-col gap-2 sm:gap-3',
-            'min-h-[7rem] sm:min-h-[8rem]'
+            'relative rounded-lg sm:rounded-xl border border-white/10 bg-subtle p-2.5 sm:p-4 text-foreground/90 flex flex-col gap-2 sm:gap-3',
+            'min-h-28 sm:min-h-32'
           );
           const displayClassName = cn('mt-1.5 sm:mt-3 items-start text-left');
           const canOpen = Boolean(entry.hour);
@@ -195,7 +195,7 @@ export function CategoryDetailPanel({
                 <ModelCaretIcon color={entry.color} />
               </button>
 
-              <div className="flex items-center gap-2 text-[9px] sm:text-[10px] font-semibold uppercase tracking-[0.16em] text-foreground/70">
+              <div className="flex items-center gap-2 text-[9px] sm:text-[10px] font-semibold uppercase tracking-caps text-foreground/70">
                 <span
                   className="h-2 w-2 sm:h-2.5 sm:w-2.5 triangle-icon"
                   style={{ backgroundColor: entry.color }}
@@ -205,6 +205,7 @@ export function CategoryDetailPanel({
               <ForecastDisplay
                 value={value}
                 unit={categoryMeta.unit}
+                precision={category === 'temperature' ? 1 : 0}
                 icon={icon}
                 description={description}
                 hideValue={hideValue}

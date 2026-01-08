@@ -245,13 +245,13 @@ export function WeatherConfidenceCard({
       : ' Model freshness unavailable.');
 
   return (
-    <div className="rounded-3xl border border-white/10 bg-[#0B1120] p-6 text-slate-100 shadow-[0_24px_60px_rgba(5,8,18,0.45)]">
+    <div className="rounded-3xl border border-white/10 bg-background p-6 text-foreground shadow-card-deep">
       <div className="flex items-start justify-between gap-4">
         <div>
           <h2 className="text-2xl font-semibold leading-none">
             {location.name}
           </h2>
-          <p className="mt-1 text-sm text-slate-400">{location.region}</p>
+          <p className="mt-1 text-sm text-muted-foreground">{location.region}</p>
         </div>
       </div>
 
@@ -287,7 +287,7 @@ export function WeatherConfidenceCard({
                 {Math.round(current.temp)}
                 {'\u00B0'}
               </div>
-              <div className="text-sm text-slate-300">{current.condition}</div>
+              <div className="text-sm text-foreground/80">{current.condition}</div>
             </div>
           </RingGauge>
         </div>
@@ -298,16 +298,15 @@ export function WeatherConfidenceCard({
           </span>
           <button
             type="button"
-            className="flex items-center gap-1 text-xs text-slate-400 transition hover:text-slate-200"
+            className="flex items-center gap-1 text-xs text-muted-foreground transition hover:text-foreground/80"
             aria-expanded={expanded}
             aria-controls="confidence-breakdown"
             onClick={() => setExpanded((prev) => !prev)}
           >
             Based on {modelCount} models
             <ChevronDown
-              className={`h-3.5 w-3.5 transition ${
-                expanded ? 'rotate-180' : ''
-              }`}
+              className={`h-3.5 w-3.5 transition ${expanded ? 'rotate-180' : ''
+                }`}
               aria-hidden="true"
             />
           </button>
@@ -328,7 +327,7 @@ export function WeatherConfidenceCard({
                 delay={0.1 + index * 0.05}
                 ariaLabel={`${Math.round(clampPercent(item.value))}% ${item.label} agreement`}
               >
-                <Icon className="h-4 w-4 text-slate-200" aria-hidden="true" />
+                <Icon className="h-4 w-4 text-foreground/80" aria-hidden="true" />
               </RingGauge>
             );
           })}
@@ -357,13 +356,13 @@ export function WeatherConfidenceCard({
                     delay={0.05 + index * 0.05}
                     ariaLabel={`${Math.round(clampPercent(item.value))}% ${item.label} agreement`}
                   >
-                    <Icon className="h-4 w-4 text-slate-200" aria-hidden="true" />
+                    <Icon className="h-4 w-4 text-foreground/80" aria-hidden="true" />
                   </RingGauge>
                   <div className="space-y-1">
-                    <div className="text-[11px] text-slate-400">
+                    <div className="text-[11px] text-muted-foreground">
                       {item.label}
                     </div>
-                    <div className="text-sm font-semibold text-slate-100">
+                    <div className="text-sm font-semibold text-foreground">
                       {Math.round(clampPercent(item.value))}%
                     </div>
                   </div>
@@ -371,7 +370,7 @@ export function WeatherConfidenceCard({
               );
             })}
           </div>
-          <div className="mt-4 text-xs text-slate-400">
+          <div className="mt-4 text-xs text-muted-foreground">
             Updated {updatedAt}
           </div>
         </div>

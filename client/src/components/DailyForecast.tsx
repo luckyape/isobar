@@ -87,6 +87,13 @@ function formatAgeLong(seconds: number) {
   return hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
 }
 
+function formatMmPerHourShort(value: number | null) {
+  if (value === null) return '—';
+  if (!Number.isFinite(value)) return '—';
+  if (value >= 0 && value < 0.05) return '<0.1';
+  return String(Math.round(value * 10) / 10);
+}
+
 function formatRunTime(seconds: number, timezone?: string) {
   const date = new Date(seconds * 1000);
   return new Intl.DateTimeFormat('en-CA', {
@@ -149,9 +156,9 @@ function getMode(values: Array<number | null>) {
 function getAgreementColor(agreement: number) {
   const { color } = getConfidenceLevel(agreement);
   const colors = {
-    high: 'bg-[oklch(0.72_0.19_160)]',
-    medium: 'bg-[oklch(0.75_0.18_85)]',
-    low: 'bg-[oklch(0.65_0.22_25)]'
+    high: 'bg-agreement-high',
+    medium: 'bg-agreement-medium',
+    low: 'bg-agreement-low'
   };
   return colors[color];
 }
@@ -159,9 +166,9 @@ function getAgreementColor(agreement: number) {
 function getAgreementBorder(agreement: number) {
   const { color } = getConfidenceLevel(agreement);
   const colors = {
-    high: 'border-[oklch(0.72_0.19_160/30%)]',
-    medium: 'border-[oklch(0.75_0.18_85/30%)]',
-    low: 'border-[oklch(0.65_0.22_25/30%)]'
+    high: 'border-agreement-high',
+    medium: 'border-agreement-medium',
+    low: 'border-agreement-low'
   };
   return colors[color];
 }
@@ -192,9 +199,9 @@ function buildOutlierStyle(ratio: number | null, minRatio = 0.35) {
 }
 
 const freshnessToneClass: Record<string, string> = {
-  fresh: 'bg-[oklch(0.72_0.19_160)]',
-  aging: 'bg-[oklch(0.75_0.18_85)]',
-  stale: 'bg-[oklch(0.65_0.22_25)]',
+  fresh: 'bg-agreement-high',
+  aging: 'bg-agreement-medium',
+  stale: 'bg-agreement-low',
   unknown: 'bg-white/20'
 };
 
@@ -433,7 +440,7 @@ export const ModelBreakdownPanel = memo(function ModelBreakdownPanel({
           return (
             <div
               key={entry.name}
-              className="rounded-lg bg-[oklch(0.12_0.02_240)] px-3 py-2 text-foreground/90"
+              className="rounded-lg bg-background px-3 py-2 text-foreground/90"
               style={cardStyle}
             >
               <div className="flex items-center justify-between">
@@ -603,11 +610,13 @@ const ModelHourlyBreakdownPanel = memo(function ModelHourlyBreakdownPanel({
   }, [forecasts, modelOrder, modelNames, timezone]);
 
   const tempValues = modelEntries.map((entry) => getNumeric(entry.hour?.temperature));
-  const precipValues = modelEntries.map((entry) => getNumeric(entry.hour?.precipitationProbability));
+  const precipPopValues = modelEntries.map((entry) => getNumeric(entry.hour?.precipitationProbability));
+  const precipAmountValues = modelEntries.map((entry) => getNumeric(entry.hour?.precipitation));
   const windValues = modelEntries.map((entry) => getNumeric(entry.hour?.windSpeed));
 
   const tempSpread = getSpread(tempValues);
-  const precipSpread = getSpread(precipValues);
+  const precipPopSpread = getSpread(precipPopValues);
+  const precipAmountSpread = getSpread(precipAmountValues);
   const windSpread = getSpread(windValues);
 
   const tempOutlier = useMemo(() => (
@@ -627,10 +636,10 @@ const ModelHourlyBreakdownPanel = memo(function ModelHourlyBreakdownPanel({
         name: entry.name,
         value: getNumeric(entry.hour?.precipitationProbability)
       })),
-      precipSpread,
+      precipPopSpread,
       20
     )
-  ), [modelEntries, precipSpread]);
+  ), [modelEntries, precipPopSpread]);
 
   const windOutlier = useMemo(() => (
     getOutlierInfo(
@@ -667,7 +676,7 @@ const ModelHourlyBreakdownPanel = memo(function ModelHourlyBreakdownPanel({
 
   const spreadCandidates = [
     { key: 'temperature', label: 'temperature', value: tempSpread ?? 0, unit: '°' },
-    { key: 'precipitation', label: 'precipitation', value: precipSpread ?? 0, unit: '%' },
+    { key: 'precipitation', label: 'precipitation', value: precipPopSpread ?? 0, unit: '%' },
     { key: 'wind', label: 'wind', value: windSpread ?? 0, unit: ' km/h' }
   ].filter((candidate) => candidate.value > 0);
 
@@ -692,12 +701,19 @@ const ModelHourlyBreakdownPanel = memo(function ModelHourlyBreakdownPanel({
         : 'Low agreement'
     : 'Model comparison';
 
+  const precipitationSpreadDetail = [
+    `POP Δ ${precipPopSpread !== null ? `${Math.round(precipPopSpread)}%` : '—'}`,
+    `amount Δ ${precipAmountSpread !== null ? `${formatMmPerHourShort(precipAmountSpread)} mm/hr` : '—'}`
+  ].join(', ');
+
   const hasConditionOutliers = conditionOutliers.size > 0 || hasConditionDisagreement;
   const reasonLine = agreementScore !== null
     ? agreementScore >= 75
       ? `${agreementLabel}: models aligned across all metrics.`
       : maxSpread
-        ? `${agreementLabel} driven by ${maxSpread.label} spread (${Math.round(maxSpread.value)}${maxSpread.unit}).`
+        ? maxSpread.label === 'precipitation'
+          ? `${agreementLabel} driven by precipitation spread (${precipitationSpreadDetail}).`
+          : `${agreementLabel} driven by ${maxSpread.label} spread (${Math.round(maxSpread.value)}${maxSpread.unit}).`
         : hasConditionOutliers
           ? `${agreementLabel} driven by conditions disagreement.`
           : `${agreementLabel}: limited model agreement data.`
@@ -758,7 +774,8 @@ const ModelHourlyBreakdownPanel = memo(function ModelHourlyBreakdownPanel({
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         {modelEntries.map((entry) => {
           const temp = getNumeric(entry.hour?.temperature);
-          const precip = getNumeric(entry.hour?.precipitationProbability);
+          const precipPop = getNumeric(entry.hour?.precipitationProbability);
+          const precipAmount = getNumeric(entry.hour?.precipitation);
           const wind = getNumeric(entry.hour?.windSpeed);
           const code = getNumeric(entry.hour?.weatherCode);
           const weatherInfo = code !== null ? WEATHER_CODES[code] : null;
@@ -771,7 +788,11 @@ const ModelHourlyBreakdownPanel = memo(function ModelHourlyBreakdownPanel({
           const ageHours = ageSeconds !== null ? ageSeconds / 3600 : null;
           const freshnessTone = getFreshnessTone(ageHours);
           const tempValue = temp !== null ? `${Math.round(temp)}°` : '—';
-          const precipValue = precip !== null ? `${Math.round(precip)}%` : '—';
+          const precipParts = [
+            precipPop !== null ? `${Math.round(precipPop)}% POP` : null,
+            precipAmount !== null ? `${formatMmPerHourShort(precipAmount)} mm/hr` : null
+          ].filter((part): part is string => Boolean(part));
+          const precipValue = precipParts.length > 0 ? precipParts.join(' · ') : '—';
           const windValue = wind !== null ? `${Math.round(wind)} km/h` : '—';
           const tempOutlierStyle = tempOutlier?.name === entry.name
             ? buildOutlierStyle(tempOutlier.ratio, 0.3)
@@ -791,7 +812,7 @@ const ModelHourlyBreakdownPanel = memo(function ModelHourlyBreakdownPanel({
           return (
             <div
               key={entry.name}
-              className="rounded-lg bg-[oklch(0.12_0.02_240)] px-3 py-2 text-foreground/90"
+              className="rounded-lg bg-background px-3 py-2 text-foreground/90"
               style={cardStyle}
             >
               <div className="flex items-center justify-between">
@@ -911,7 +932,10 @@ const ModelHourlyBreakdownPanel = memo(function ModelHourlyBreakdownPanel({
             Temp Δ {tempSpread !== null ? `${Math.round(tempSpread)}°` : '—'}
           </span>
           <span className="rounded-full bg-white/[0.04] px-2 py-1 text-[10px] font-mono text-foreground/70">
-            Precip Δ {precipSpread !== null ? `${Math.round(precipSpread)}%` : '—'}
+            POP Δ {precipPopSpread !== null ? `${Math.round(precipPopSpread)}%` : '—'}
+          </span>
+          <span className="rounded-full bg-white/[0.04] px-2 py-1 text-[10px] font-mono text-foreground/70">
+            Amt Δ {precipAmountSpread !== null ? `${formatMmPerHourShort(precipAmountSpread)} mm/hr` : '—'}
           </span>
           <span className="rounded-full bg-white/[0.04] px-2 py-1 text-[10px] font-mono text-foreground/70">
             Wind Δ {windSpread !== null ? `${Math.round(windSpread)} km/h` : '—'}
@@ -981,11 +1005,18 @@ const HourlyForecastRow = memo(function HourlyForecastRow({
       {/* Secondary stats */}
       <div className="mt-3 flex items-center justify-between gap-3 sm:mt-0 sm:ml-auto sm:justify-end sm:gap-6">
         {/* Precipitation */}
-        <div className="text-left sm:w-16 sm:text-center">
+        <div className="text-left sm:w-24 sm:text-center">
           <p className="font-mono text-sm whitespace-nowrap">
-            {Math.round(hour.precipitationProbability.mean)}%
+            {hour.precipitationProbability.available === false
+              ? '—'
+              : `${Math.round(hour.precipitationProbability.mean)}%`}
           </p>
-          <p className="text-xs text-foreground/80">Precip</p>
+          <p className="text-xs text-foreground/80 whitespace-nowrap">
+            Precip
+            {hour.precipitation.available === false
+              ? ''
+              : ` · ${formatMmPerHourShort(hour.precipitation.mean)} mm/hr`}
+          </p>
         </div>
 
         {/* Wind */}
@@ -1435,15 +1466,15 @@ export function DailyForecast({
       {showAgreement && activeTab === 'daily' && (
         <div className="flex flex-wrap items-center justify-start sm:justify-end gap-4 mt-4 pt-4 border-t border-white/10">
           <div className="flex items-center gap-2">
-            <div className="w-2 h-2 rotate-45 bg-[oklch(0.72_0.19_160)]" />
+            <div className="w-2 h-2 rotate-45 bg-agreement-high" />
             <span className="text-xs text-foreground/80">High Agreement</span>
           </div>
           <div className="flex items-center gap-2">
-            <div className="w-2 h-2 rotate-45 bg-[oklch(0.75_0.18_85)]" />
+            <div className="w-2 h-2 rotate-45 bg-agreement-medium" />
             <span className="text-xs text-foreground/80">Moderate</span>
           </div>
           <div className="flex items-center gap-2">
-            <div className="w-2 h-2 rotate-45 bg-[oklch(0.65_0.22_25)]" />
+            <div className="w-2 h-2 rotate-45 bg-agreement-low" />
             <span className="text-xs text-foreground/80">Low</span>
           </div>
         </div>

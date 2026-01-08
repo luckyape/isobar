@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Command, CommandInput, CommandList, CommandEmpty, CommandGroup, CommandItem } from '@/components/ui/command';
 import { Dialog, DialogContent, DialogTrigger } from '@/components/ui/dialog';
 import { Drawer, DrawerContent, DrawerTrigger, DrawerHeader, DrawerTitle } from '@/components/ui/drawer';
-import { useMediaQuery } from '@/hooks/use-media-query';
+import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { searchLocations, CANADIAN_CITIES, type Location } from '@/lib/weatherApi';
 import { cn } from '@/lib/utils';
 
@@ -116,23 +116,23 @@ export function LocationSearch({ currentLocation, onLocationSelect, disabled = f
     <div className={cn(isDesktop ? 'w-[400px]' : 'h-[80vh]')}>
       <Command shouldFilter={false} loop>
         <div className={cn('p-3 border-b border-white/10', isDesktop ? '' : 'sticky top-0 bg-background/95 backdrop-blur-xl z-10')}>
-            <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-foreground/70" />
-                <CommandInput
-                    value={query}
-                    onValueChange={setQuery}
-                    placeholder="Search Canadian cities..."
-                    className="pl-10 pr-10 bg-background/50 border-white/10 h-11 focus:border-primary/50"
-                />
-                {query && (
-                    <button
-                    onClick={() => setQuery('')}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-foreground/70 hover:text-foreground"
-                    >
-                    <X className="w-4 h-4" />
-                    </button>
-                )}
-            </div>
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-foreground/70" />
+            <CommandInput
+              value={query}
+              onValueChange={setQuery}
+              placeholder="Search Canadian cities..."
+              className="pl-10 pr-10 bg-background/50 border-white/10 h-11 focus:border-primary/50"
+            />
+            {query && (
+              <button
+                onClick={() => setQuery('')}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-foreground/70 hover:text-foreground"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            )}
+          </div>
         </div>
         <CommandList className="max-h-[calc(80vh-100px)] px-2 pb-2">
           {isSearching && (
@@ -159,9 +159,9 @@ export function LocationSearch({ currentLocation, onLocationSelect, disabled = f
           )}
           {!query && favorites.length === 0 && (
             <CommandGroup heading="Popular Cities">
-                {CANADIAN_CITIES.slice(0, 5).map(location => (
-                    <LocationItem key={generateLocationId(location)} location={location} onSelect={handleSelect} isFavorite={false} onFavoriteToggle={toggleFavorite} isSelected={currentLocation?.name === location.name} />
-                ))}
+              {CANADIAN_CITIES.slice(0, 5).map(location => (
+                <LocationItem key={generateLocationId(location)} location={location} onSelect={handleSelect} isFavorite={false} onFavoriteToggle={toggleFavorite} isSelected={currentLocation?.name === location.name} />
+              ))}
             </CommandGroup>
           )}
         </CommandList>

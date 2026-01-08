@@ -1,0 +1,27 @@
+name = "weather-forecast-cdn"
+main = "cdn/worker/index.ts"
+compatibility_date = "2024-01-01"
+compatibility_flags = ["nodejs_compat"]
+
+# R2 bucket binding for content-addressed storage
+[[r2_buckets]]
+binding = "BUCKET"
+bucket_name = "weather-forecast-cdn"
+
+# Cron triggers for scheduled ingest
+[triggers]
+crons = ["0 */6 * * *"]  # Every 6 hours
+
+# Environment variables
+[vars]
+INGEST_LATITUDE = "43.6532"
+INGEST_LONGITUDE = "-79.3832"
+INGEST_TIMEZONE = "America/Toronto"
+
+# Production environment
+[env.production]
+name = "weather-forecast-cdn-prod"
+
+[[env.production.r2_buckets]]
+binding = "BUCKET"
+bucket_name = "weather-forecast-cdn-prod"

@@ -29,7 +29,7 @@ import {
   ComparisonTooltipRow,
   ComparisonTooltipSection
 } from '@/components/ComparisonTooltip';
-import { useIsMobile } from '@/hooks/useMobile';
+import { useIsMobile } from '@/hooks/useMediaQuery';
 
 interface WindChartProps {
   forecasts: ModelForecast[];
@@ -50,7 +50,7 @@ export function WindChart({
   observations = [],
   timezone,
   visibleLines = {},
-  onToggleLine = () => {}
+  onToggleLine = () => { }
 }: WindChartProps) {
   const hasConsensus = showConsensus && consensus.length > 0;
   const isMobile = useIsMobile();
