@@ -182,6 +182,33 @@ export class Vault {
     }
 
     /**
+     * Get all artifacts for a specific date by looking at synced manifests.
+     */
+    async getArtifactsForDate(date: string): Promise<Artifact[]> {
+        const manifestIndex: Record<string, string[]> = await this.getMeta('manifest-index') ?? {};
+        const manifestHashes = manifestIndex[date] ?? [];
+        const artifacts: Artifact[] = [];
+
+        for (const hash of manifestHashes) {
+            try {
+                const manifest = await this.getManifest(hash);
+                if (!manifest) continue;
+
+                for (const entry of manifest.artifacts) {
+                    const artifact = await this.getArtifact(entry.hash);
+                    if (artifact) {
+                        artifacts.push(artifact);
+                    }
+                }
+            } catch (error) {
+                console.warn(`Failed to retrieve artifacts for manifest ${hash}:`, error);
+            }
+        }
+
+        return artifacts;
+    }
+
+    /**
      * Delete blobs older than a certain date (for pruning).
      * Note: This requires walking all blobs and checking their metadata.
      */
@@ -218,15 +245,70 @@ export class Vault {
     /**
      * Delete a blob by hash.
      */
-    private async deleteBlob(hash: string): Promise<void> {
+    /**
+     * Delete a blob by hash (Idempotent).
+     * Returns resolved void if deleted or already missing.
+     * Rejects only on DB error.
+     */
+    async delete(hash: string): Promise<void> {
         await this.open();
         return new Promise((resolve, reject) => {
             const tx = this.db!.transaction(STORE_BLOBS, 'readwrite');
             const store = tx.objectStore(STORE_BLOBS);
-            const request = store.delete(hash);
+            const request = store.delete(hash); // delete() is success even if key missing
 
             request.onerror = () => reject(request.error);
             request.onsuccess = () => resolve();
+        });
+    }
+
+    /**
+     * Delete a blob by hash (legacy alias, now just calls delete).
+     */
+    private async deleteBlob(hash: string): Promise<void> {
+        return this.delete(hash);
+    }
+
+    /**
+     * Check if a blob exists (Lightweight).
+     * Returns existence and size if available.
+     */
+    async stat(hash: string): Promise<{ exists: boolean; size?: number }> {
+        await this.open();
+
+        // For IndexedDB, checking key existence is fast.
+        // To get size, we might need to fetch the blob or cursor.
+        // 'getKey' is cheapest check.
+        // But we want size for reconciliation.
+        // Optimization: Use a cursor to get value without loading into memory?
+        // IDB 'get' loads the whole object.
+        // IDB 'openKeyCursor' doesn't give size.
+        // If we store Blobs, we have to load it to read .size property unless we stored metadata alongside.
+        // We do NOT store metadata in STORE_BLOBS (values are raw Blobs/ArrayBuffers).
+
+        return new Promise((resolve, reject) => {
+            const tx = this.db!.transaction(STORE_BLOBS, 'readonly');
+            const store = tx.objectStore(STORE_BLOBS);
+            const request = store.get(hash);
+
+            request.onerror = () => reject(request.error);
+            request.onsuccess = () => {
+                const result = request.result;
+                if (!result) {
+                    resolve({ exists: false });
+                } else {
+                    // It's a Blob or ArrayBuffer
+                    let size = 0;
+                    if (result instanceof Blob) {
+                        size = result.size;
+                    } else if (result instanceof ArrayBuffer) {
+                        size = result.byteLength;
+                    } else if (ArrayBuffer.isView(result)) {
+                        size = result.byteLength;
+                    }
+                    resolve({ exists: true, size });
+                }
+            };
         });
     }
 

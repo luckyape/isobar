@@ -4,17 +4,9 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import {
-  fetchForecastsWithMetadata,
-  getCachedForecasts,
-  fetchObservedHourly,
-  type ObservedConditions,
-  type ModelForecast,
-  type Location,
-  type DataCompleteness,
-  CANADIAN_CITIES
-} from '@/lib/weatherApi';
+import { fetchForecastsWithMetadata, getCachedForecasts, fetchObservedHourly, type ObservedConditions, type ModelForecast, type Location, type DataCompleteness, CANADIAN_CITIES } from '@/lib/weatherApi';
 import { calculateConsensus, type ConsensusResult } from '@/lib/consensus';
+import { getSyncEngine, type SyncProgress } from '@/lib/vault/sync';
 
 interface WeatherState {
   location: Location | null;
@@ -30,6 +22,7 @@ interface WeatherState {
     type: 'no-new-runs';
     latestRunAvailabilityTime?: number;
   } | null;
+  syncProgress: SyncProgress | null;
 }
 
 const STORAGE_KEY = 'weather-consensus-location';
@@ -69,7 +62,8 @@ export function useWeather() {
     isOffline: typeof navigator !== 'undefined' ? !navigator.onLine : false,
     error: null,
     lastUpdated: null,
-    refreshNotice: null
+    refreshNotice: null,
+    syncProgress: null
   });
 
   // Fetch weather data for a location
@@ -129,12 +123,12 @@ export function useWeather() {
       const runTime = consensus.freshness.freshestRunAvailabilityTime;
       const refreshNotice = refreshSummary.noNewRuns && options.refresh
         ? {
-            type: 'no-new-runs' as const,
-            latestRunAvailabilityTime: refreshSummary.latestRunAvailabilityTime
-          }
+          type: 'no-new-runs' as const,
+          latestRunAvailabilityTime: refreshSummary.latestRunAvailabilityTime
+        }
         : null;
 
-      setState({
+      setState(prev => ({
         location,
         forecasts,
         consensus,
@@ -144,8 +138,9 @@ export function useWeather() {
         isOffline,
         error: null,
         lastUpdated: Number.isFinite(runTime ?? NaN) ? new Date((runTime as number) * 1000) : null,
-        refreshNotice
-      });
+        refreshNotice,
+        syncProgress: prev.syncProgress
+      }));
 
       saveLocation(location);
 
@@ -209,6 +204,20 @@ export function useWeather() {
     const savedLocation = getSavedLocation();
     const initialLocation = savedLocation || CANADIAN_CITIES[0]; // Default to Toronto
     fetchWeather(initialLocation);
+
+    // Initial background sync from CDN
+    const syncEngine = getSyncEngine();
+    syncEngine.sync((progress) => {
+      setState(prev => ({ ...prev, syncProgress: progress }));
+    }).then((state) => {
+      console.log(`[sync] Finished: ${state.blobsDownloaded} blobs, ${state.bytesDownloaded} bytes`);
+      // If we downloaded new data, we might want to refresh the UI
+      if (state.blobsDownloaded > 0) {
+        // refresh(); // Optional: trigger a refresh if new data arrived
+      }
+    }).catch((err) => {
+      console.warn('[sync] Failed:', err);
+    });
   }, [fetchWeather]);
 
   useEffect(() => {

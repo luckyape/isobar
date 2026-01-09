@@ -85,18 +85,27 @@ async function decompressGzip(data: Uint8Array): Promise<Uint8Array> {
 
     const ds = new DecompressionStream('gzip');
     const writer = ds.writable.getWriter();
-    // Await writing/closing so errors propagate to the async function promise
-    await writer.write(data);
-    await writer.close();
-
-    const chunks: Uint8Array[] = [];
     const reader = ds.readable.getReader();
 
-    // eslint-disable-next-line no-constant-condition
-    while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        if (value) chunks.push(value);
+    // Write in background so we can read concurrently (avoids deadlock on backpressure)
+    const writePromise = (async () => {
+        await writer.write(data);
+        await writer.close();
+    })();
+
+    const chunks: Uint8Array[] = [];
+
+    // Read loop
+    try {
+        // eslint-disable-next-line no-constant-condition
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            if (value) chunks.push(value);
+        }
+    } finally {
+        // Ensure proper cleanup if reading fails
+        await writePromise;
     }
 
     return concatChunks(chunks);

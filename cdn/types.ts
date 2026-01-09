@@ -294,6 +294,9 @@ export interface ManifestEntry {
     source?: string;
     observedAtBucket?: string;
     stationSetId?: string;
+
+    /** For retraction entries: hash of the retracted artifact */
+    retractedHash?: string;
 }
 
 // =============================================================================

@@ -3,7 +3,7 @@
  * Shows hourly temperature comparison across models with consensus band
  */
 
-import { useMemo } from 'react';
+import React, { useMemo } from 'react';
 import {
   Line,
   XAxis,
@@ -226,13 +226,30 @@ export function HourlyChart({
         )}
         <ComparisonTooltipSection divider={hasConsensusData || hasObserved}>
           {WEATHER_MODELS.map(model => {
-            const value = data[model.id];
-            if (value === undefined) return null;
+            const rawValue = data[model.id];
+            if (rawValue === undefined) return null;
+            const value = rawValue as number;
+
+            let deltaElem = null;
+            if (hasObserved && Number.isFinite(value) && Number.isFinite(data.observed)) {
+              const delta = (value as number) - (data.observed as number);
+              if (Number.isFinite(delta)) {
+                const color = delta > 0 ? 'text-red-400' : delta < 0 ? 'text-blue-400' : 'text-gray-400';
+                const sign = delta > 0 ? '+' : '';
+                deltaElem = <span className={`ml-1 text-[10px] ${color}`}>({sign}{Math.round(delta * 10) / 10})</span>;
+              }
+            }
+
             return (
               <ComparisonTooltipRow
                 key={model.id}
                 label={`${model.name}:`}
-                value={formatTemperature(value)}
+                value={
+                  <span className="flex items-center">
+                    {formatTemperature(value)}
+                    {deltaElem}
+                  </span>
+                }
                 icon={
                   <span
                     className="w-2 h-2 triangle-icon"
@@ -378,24 +395,25 @@ export function HourlyChart({
             <span className="text-xs text-foreground/80">Consensus Mean</span>
           </div>
         )}
-        {hasObservations && (
+        {/* Always show Observed legend item, even if data is unavailable */}
+        <div
+          className={`flex items-center gap-2 ${hasObservations ? 'cursor-pointer' : ''}`}
+          onClick={() => hasObservations && onToggleLine('Observed')}
+          style={{
+            opacity: !hasObservations ? 0.4 : visibleLines['Observed'] ? 1 : 0.5,
+            textShadow: hasObservations && visibleLines['Observed']
+              ? `0 0 8px ${observedColor}`
+              : 'none'
+          }}
+        >
           <div
-            className="flex items-center gap-2 cursor-pointer"
-            onClick={() => onToggleLine('Observed')}
-            style={{
-              opacity: visibleLines['Observed'] ? 1 : 0.5,
-              textShadow: visibleLines['Observed']
-                ? `0 0 8px ${observedColor}`
-                : 'none'
-            }}
-          >
-            <div
-              className="w-6 h-0.5 rounded"
-              style={{ backgroundColor: observedColor }}
-            />
-            <span className="text-xs text-foreground/80">Observed</span>
-          </div>
-        )}
+            className="w-6 h-0.5 rounded"
+            style={{ backgroundColor: observedColor }}
+          />
+          <span className="text-xs text-foreground/80">
+            Observed{!hasObservations && ' - Unavailable'}
+          </span>
+        </div>
         {WEATHER_MODELS.map((model) => (
           <div
             key={model.id}

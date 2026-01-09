@@ -69,6 +69,7 @@ export interface ObservedHourly {
     windSpeed?: number;
     windDirection?: number;
     windGusts?: number;
+    weatherCode?: number;
 }
 
 export interface ObservedConditions {

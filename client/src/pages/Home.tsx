@@ -792,6 +792,8 @@ export default function Home() {
                 timezone={location?.timezone}
                 visibleLines={visibleLines}
                 onToggleLine={toggleLineVisibility}
+                location={location ?? undefined}
+                lastUpdated={lastUpdated}
               />
             </motion.section>
 

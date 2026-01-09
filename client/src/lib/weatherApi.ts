@@ -27,6 +27,9 @@ import {
   type Location
 } from './weatherTypes';
 import { WEATHER_MODELS } from './weatherModels';
+import { getVault } from './vault';
+import { getTodayDateString } from '@cdn/manifest';
+import type { Artifact, ForecastArtifact, ObservationArtifact } from '@cdn/types';
 
 
 const DEFAULT_UPDATE_INTERVAL_SECONDS = 600;
@@ -582,6 +585,12 @@ export async function fetchObservedHourly(
   longitude: number,
   timezone: string = 'America/Toronto'
 ): Promise<ObservedConditions | null> {
+  // 1. Check Vault first
+  const { observations: vaultObs } = await fetchFromVault();
+  if (vaultObs && vaultObs.hourly.length > 0) {
+    return vaultObs;
+  }
+
   const nowParts = getZonedNowParts(timezone);
   if (!nowParts) return null;
   const nowKey = formatDateTimeKey({ ...nowParts, minute: 0 });
@@ -968,11 +977,20 @@ export async function fetchForecastsWithMetadata(
   const locationKey = getLocationKey(latitude, longitude, timezone);
   const mode: RefreshSummary['mode'] = force ? 'force' : userInitiated ? 'manual' : 'auto';
 
+  // 1. Fetch from Vault (CDN Data)
+  const { forecasts: vaultForecasts, observations: vaultObservations } = await fetchFromVault();
+
   const cachedForecasts = new Map(
-    WEATHER_MODELS.map((model) => [
-      model.id,
-      getCachedForecastForModel(locationKey, model.id)
-    ])
+    WEATHER_MODELS.map((model) => {
+      const cached = getCachedForecastForModel(locationKey, model.id);
+      const vault = vaultForecasts.find(f => f.model.id === model.id);
+
+      // Prioritize vault data if it's fresher or if cached is missing
+      if (vault && (!cached || (vault.runAvailabilityTime ?? 0) > (cached.runAvailabilityTime ?? 0))) {
+        return [model.id, vault];
+      }
+      return [model.id, cached];
+    })
   );
   const usedCache = Array.from(cachedForecasts.values()).some((forecast) => Boolean(forecast?.hourly?.length));
   const isOffline = options.offline ?? (typeof navigator !== 'undefined' && navigator.onLine === false);
@@ -1323,4 +1341,103 @@ export async function searchLocations(query: string): Promise<Location[]> {
     console.error('Geocoding error:', error);
     return [];
   }
+}
+/**
+ * Map CDN ForecastArtifact to frontend ModelForecast.
+ */
+function mapForecastArtifactToModel(artifact: ForecastArtifact): ModelForecast | null {
+  const model = WEATHER_MODELS.find(m => m.id === artifact.model);
+  if (!model) return null;
+
+  const hourly: HourlyForecast[] = [];
+  const times = artifact.validTimes;
+  if (!times) return null;
+
+  for (let i = 0; i < times.length; i++) {
+    hourly.push({
+      time: times[i],
+      temperature: artifact.data.temperature_2m?.[i] ?? 0,
+      precipitation: artifact.data.precipitation?.[i] ?? 0,
+      precipitationProbability: artifact.data.precipitation_probability?.[i] ?? 0,
+      windSpeed: artifact.data.wind_speed_10m?.[i] ?? 0,
+      windDirection: artifact.data.wind_direction_10m?.[i] ?? 0,
+      windGusts: artifact.data.wind_gusts_10m?.[i] ?? 0,
+      cloudCover: artifact.data.cloud_cover?.[i] ?? 0,
+      humidity: (artifact.data as any).humidity_2m?.[i] ?? 0,
+      pressure: (artifact.data as any).surface_pressure?.[i] ?? 0,
+      weatherCode: artifact.data.weather_code?.[i] ?? 0
+    });
+  }
+
+  return {
+    model,
+    hourly,
+    daily: [], // Daily is calculated by consensus usually
+    fetchedAt: new Date(artifact.issuedAt * 1000),
+    runInitialisationTime: Math.floor(new Date(artifact.runTime).getTime() / 1000),
+    runAvailabilityTime: artifact.issuedAt
+  };
+}
+
+/**
+ * Map CDN ObservationArtifact to frontend ObservedConditions.
+ */
+function mapObservationArtifactToObservedConditions(artifacts: ObservationArtifact[]): ObservedConditions {
+  const allObs = artifacts.flatMap(artifact => {
+    // Find the "primary" station (for now just pick first station ID)
+    const airTempData = artifact.data['airTempC'] || {};
+    const stationIds = Object.keys(airTempData);
+    if (stationIds.length === 0) return [];
+    const stationId = stationIds[0];
+
+    return [{
+      time: artifact.observedAtBucket,
+      temperature: airTempData[stationId] ?? 0,
+      precipitation: (artifact.data as any)['precipMm']?.[stationId] ?? undefined,
+      windSpeed: (artifact.data as any)['windSpdKmh']?.[stationId] ?? undefined,
+      windDirection: (artifact.data as any)['windDirDeg']?.[stationId] ?? undefined,
+      windGusts: (artifact.data as any)['windGustMs']?.[stationId] ?? undefined
+    }];
+  });
+
+  // Deduplicate and sort
+  const seen = new Set<string>();
+  const sorted: ObservedHourly[] = (allObs as any[])
+    .filter(obs => {
+      if (seen.has(obs.time)) return false;
+      seen.add(obs.time);
+      return true;
+    })
+    .sort((a, b) => a.time.localeCompare(b.time));
+
+  return {
+    hourly: sorted,
+    fetchedAt: new Date()
+  };
+}
+
+/**
+ * Fetch data from Vault for a specific date.
+ */
+export async function fetchFromVault(date?: string): Promise<{ forecasts: ModelForecast[], observations: ObservedConditions | null }> {
+  const vault = getVault();
+  const targetDate = date ?? getTodayDateString();
+  const artifacts = await vault.getArtifactsForDate(targetDate);
+
+  const forecasts: ModelForecast[] = [];
+  const obsArtifacts: ObservationArtifact[] = [];
+
+  for (const artifact of artifacts) {
+    if (artifact.type === 'forecast') {
+      const mapped = mapForecastArtifactToModel(artifact as ForecastArtifact);
+      if (mapped) forecasts.push(mapped);
+    } else if (artifact.type === 'observation') {
+      obsArtifacts.push(artifact as ObservationArtifact);
+    }
+  }
+
+  return {
+    forecasts,
+    observations: obsArtifacts.length > 0 ? mapObservationArtifactToObservedConditions(obsArtifacts) : null
+  };
 }
