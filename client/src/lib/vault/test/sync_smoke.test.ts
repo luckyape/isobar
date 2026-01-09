@@ -115,7 +115,7 @@ describe('Sync Engine Smoke Test', () => {
 
         // Mocking private method (TypeScript allows this via cast or via subclass)
         (engine as any).fetchManifestsForDate = async (date: string) => {
-            if (date === today) return [manifest];
+            if (date === today) return [{ hash: manifestHash, data: manifest }];
             return [];
         };
 
