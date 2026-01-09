@@ -9,12 +9,13 @@ import { getVault, type Vault } from './store';
 import { getBlobContentHash } from '@cdn/artifact';
 import { unpackageManifest, getLastNDays } from '@cdn/manifest';
 import type { DailyManifest, ManifestEntry } from '@cdn/types';
+import { onSyncComplete, getDefaultClosetPolicy, type MaintenanceResult, getClosetDB, withClosetLock } from '../closet';
+import { getCdnBaseUrl } from '../config';
 
 // =============================================================================
 // Configuration
 // =============================================================================
 
-const DEFAULT_CDN_URL = 'https://weather-cdn.example.com';
 const DEFAULT_SYNC_DAYS = 7;
 const DEFAULT_CONCURRENCY = 4;
 const SYNC_STATE_KEY = 'sync-state';
@@ -54,7 +55,7 @@ export class SyncEngine {
     constructor(config?: Partial<SyncConfig>) {
         this.vault = getVault();
         this.config = {
-            cdnUrl: config?.cdnUrl ?? DEFAULT_CDN_URL,
+            cdnUrl: config?.cdnUrl ?? getCdnBaseUrl(),
             syncDays: config?.syncDays ?? DEFAULT_SYNC_DAYS,
             concurrency: config?.concurrency ?? DEFAULT_CONCURRENCY
         };
@@ -91,12 +92,18 @@ export class SyncEngine {
                 failed: 0
             };
 
+            const manifestIndex: Record<string, string[]> = await this.vault.getMeta('manifest-index') ?? {};
+
             for (const date of dates) {
                 if (this.abortController.signal.aborted) break;
 
                 try {
-                    const dateManifests = await this.fetchManifestsForDate(date);
-                    manifests.push(...dateManifests);
+                    const dateResults = await this.fetchManifestsForDate(date);
+                    manifests.push(...dateResults.map((r) => r.data));
+
+                    // Index manifest hashes
+                    manifestIndex[date] = dateResults.map((r) => r.hash);
+
                     manifestProgress.downloaded++;
                 } catch (error) {
                     console.warn(`Failed to fetch manifests for ${date}:`, error);
@@ -132,12 +139,35 @@ export class SyncEngine {
             await this.parallelDownload(
                 chunks,
                 async (hash) => {
+                    const closetDB = getClosetDB();
                     const type = wantSet.get(hash) ?? 'unknown';
-                    const blob = await this.fetchAndVerify(`chunks/${hash}`, hash);
-                    await this.vault.put(hash, blob);
-                    state.blobsDownloaded++;
-                    state.bytesDownloaded += blob.length;
-                    chunkProgress.downloaded++;
+
+                    // Phase 1 (locked): Mark as in-flight
+                    await withClosetLock('closet', async () => {
+                        await closetDB.setInflight(hash);
+                    });
+
+                    try {
+                        // Phase 2 (unlocked): Fetch bytes (slow network op)
+                        const blob = await this.fetchAndVerify(`chunks/${hash}`, hash);
+
+                        // Phase 3 (locked): Commit to vault and clear in-flight
+                        await withClosetLock('closet', async () => {
+                            await this.vault.put(hash, blob);
+                            state.blobsDownloaded++;
+                            state.bytesDownloaded += blob.length;
+                            chunkProgress.downloaded++;
+
+                            // Clear in-flight AFTER successful commit
+                            await closetDB.clearInflight(hash);
+                        });
+                    } catch (err) {
+                        // Clear in-flight on failure too (protected)
+                        await withClosetLock('closet', async () => {
+                            await closetDB.clearInflight(hash);
+                        });
+                        throw err;
+                    }
 
                     // console.debug(`[sync] Downloaded ${type} ${hash.slice(0, 8)}`);
                     onProgress?.(chunkProgress);
@@ -152,6 +182,23 @@ export class SyncEngine {
             // 6. Update sync state
             state.lastSyncedAt = Date.now();
             await this.vault.setMeta(SYNC_STATE_KEY, state);
+            await this.vault.setMeta('manifest-index', manifestIndex);
+
+            // 7. Run closet maintenance (GC, indexing)
+            const manifestHashes = Object.values(manifestIndex).flat();
+            try {
+                await onSyncComplete({
+                    sync: {
+                        newArtifactHashes: chunks,
+                        newManifestHashes: manifestHashes
+                    },
+                    policy: getDefaultClosetPolicy(),
+                    nowMs: Date.now(),
+                    trustMode: 'unverified' // TODO: make configurable for trusted mode
+                });
+            } catch (err) {
+                console.warn('[sync] Closet maintenance failed:', err);
+            }
 
             onProgress?.({ phase: 'complete', total: 0, downloaded: 0, skipped: 0, failed: 0 });
 
@@ -183,27 +230,38 @@ export class SyncEngine {
     /**
      * Fetch manifests for a specific date.
      */
-    private async fetchManifestsForDate(date: string): Promise<DailyManifest[]> {
+    private async fetchManifestsForDate(date: string): Promise<Array<{ hash: string; data: DailyManifest }>> {
         // List manifests for the date
-        // In a real CDN, this might be a directory listing or a known pattern
-        // For MVP, we assume a single manifest per date with a predictable name
         const listUrl = `${this.config.cdnUrl}/manifests/${date}/`;
 
         try {
-            // Try to list directory (S3-style XML or JSON listing)
+            // Fetch the list of manifest hashes
             const response = await fetch(listUrl, { signal: this.abortController?.signal });
 
             if (!response.ok) {
-                // Fallback: try to fetch a known manifest pattern
                 return [];
             }
 
-            // Parse listing and fetch individual manifests
-            // This is CDN-specific; for R2/S3, parse XML or use list API
-            const manifests: DailyManifest[] = [];
-            // ... implementation depends on CDN listing format
+            const hashes: string[] = await response.json();
+            const results: Array<{ hash: string; data: DailyManifest }> = [];
 
-            return manifests;
+            // Fetch each manifest
+            for (const hash of hashes) {
+                if (this.abortController?.signal.aborted) break;
+                try {
+                    const manifestBlob = await this.fetchAndVerify(`manifests/${date}/${hash}`, hash);
+                    // Pass undefined for expectedPublicKey in dev for now
+                    const manifest = await unpackageManifest(manifestBlob);
+                    results.push({ hash, data: manifest });
+
+                    // Also store the manifest blob in the vault itself
+                    await this.vault.put(hash, manifestBlob);
+                } catch (error) {
+                    console.warn(`Failed to unpackage manifest ${hash} for ${date}:`, error);
+                }
+            }
+
+            return results;
         } catch (error) {
             console.warn(`Failed to list manifests for ${date}:`, error);
             return [];
