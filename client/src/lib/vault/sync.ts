@@ -87,7 +87,7 @@ export class SyncEngine {
     /**
      * Run a full sync cycle.
      */
-    async sync(onProgress?: SyncProgressCallback): Promise<SyncState> {
+    async sync(onProgress?: SyncProgressCallback, options?: { syncDays?: number }): Promise<SyncState> {
         await this.vault.open();
         this.abortController = new AbortController();
 
@@ -129,7 +129,8 @@ export class SyncEngine {
             state.lastSyncedDate = latestDate;
 
             // 2. Get dates to sync
-            const dates = getLastNDays(this.config.syncDays, latestDate);
+            const syncDays = options?.syncDays ?? this.config.syncDays;
+            const dates = getLastNDays(syncDays, latestDate);
 
             // 3. Fetch and process manifests
             const manifests: DailyManifest[] = [];

@@ -10,7 +10,7 @@
  * No destructive actions; ops are in /ops/closet.
  */
 
-import { useEffect, useMemo, useState, useCallback } from "react";
+import { useEffect, useMemo, useState, useCallback, useSyncExternalStore } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -23,8 +23,9 @@ import { Braces, Copy, ExternalLink, RefreshCw, Database, Archive, AlertTriangle
 
 import { computeOpsSnapshot, getDefaultClosetPolicy, isTrustedMode, type OpsConfig, type OpsSnapshot } from "@/lib/closet/ops";
 import { getClosetDB, type ForecastIndexEntry, type ObservationIndexEntry } from "@/lib/closet";
-import { ClosetSection, TrustSection, ActivitySection, type TrustData, type ActivityData } from "@/components/closet";
+import { ClosetSection, TrustSection, ActivitySection, TimelineSection, type TrustData, type ActivityData, type TimelineData, type TimelineBin } from "@/components/closet";
 import { useClosetUrlState, toggleSection } from "@/hooks/useClosetUrlState";
+import { subscribeToLocationChanges, getLocationSnapshot } from "@/lib/locationStore";
 import { cn } from "@/lib/utils";
 
 // =============================================================================
@@ -62,11 +63,13 @@ type ClosetDashboardSnapshot = {
   // New fields for layered depth model
   trust: TrustData;
   activity: ActivityData;
+  timeline: TimelineData;
   assertions: {
     coverage: string;
     storage: string;
     activity: string;
     trust: string;
+    timeline: string;
   };
   raw?: {
     observationIndexEntries: ObservationIndexEntry[];
@@ -290,6 +293,83 @@ function computeActivityData(
   };
 }
 
+function computeTimelineData(
+  obsEntries: ObservationIndexEntry[],
+  forecastEntries: ForecastIndexEntry[]
+): TimelineData {
+  const nowMs = Date.now();
+  // Default lookback: 24h or up to 7 days if data is older
+  // Let's scan data to find min/max
+  let minMs = nowMs - 24 * 60 * 60 * 1000;
+  let maxMs = nowMs;
+
+  const obsTimes = obsEntries
+    .map(e => parseMinuteKeyUtc(e.observedAtBucket))
+    .filter((ms): ms is number => ms !== null);
+
+  const forecastTimes = forecastEntries
+    .map(e => {
+      // forecast runTime is usually ISO
+      const ms = Date.parse(e.runTime);
+      return Number.isFinite(ms) ? ms : null;
+    })
+    .filter((ms): ms is number => ms !== null);
+
+  const allTimes = [...obsTimes, ...forecastTimes];
+  if (allTimes.length > 0) {
+    minMs = Math.min(...allTimes);
+    maxMs = Math.max(...allTimes);
+  }
+
+  // Cap lookback at 30 days to avoid huge timelines for stale data
+  const limitMs = nowMs - 30 * 24 * 60 * 60 * 1000;
+  if (minMs < limitMs) minMs = limitMs;
+
+  // Pad the future slightly if maxMs is close to now
+  if (maxMs < nowMs) maxMs = nowMs;
+
+  // Determine bucket size
+  const rangeMs = maxMs - minMs;
+  const targetBins = 50;
+  let bucketSizeMs = Math.ceil(rangeMs / targetBins);
+
+  // Round bucket size to nice intervals (10m, 1h, 6h, 1d)
+  const hour = 60 * 60 * 1000;
+  if (bucketSizeMs < hour) bucketSizeMs = hour;
+  else if (bucketSizeMs < 6 * hour) bucketSizeMs = 6 * hour;
+  else if (bucketSizeMs < 24 * hour) bucketSizeMs = 24 * hour;
+  else bucketSizeMs = 24 * hour;
+
+  // Align minMs to bucket start
+  minMs = Math.floor(minMs / bucketSizeMs) * bucketSizeMs;
+  maxMs = Math.ceil(maxMs / bucketSizeMs) * bucketSizeMs;
+
+  const bins: TimelineBin[] = [];
+  for (let t = minMs; t < maxMs; t += bucketSizeMs) {
+    bins.push({ timeMs: t, obsCount: 0, forecastCount: 0 });
+  }
+
+  // Fill bins
+  for (const t of obsTimes) {
+    if (t < minMs || t >= maxMs) continue; // Out of range (probably older than 30d)
+    const binIdx = Math.floor((t - minMs) / bucketSizeMs);
+    if (bins[binIdx]) bins[binIdx].obsCount++;
+  }
+
+  for (const t of forecastTimes) {
+    if (t < minMs || t >= maxMs) continue;
+    const binIdx = Math.floor((t - minMs) / bucketSizeMs);
+    if (bins[binIdx]) bins[binIdx].forecastCount++;
+  }
+
+  return {
+    bins: bins,
+    startMs: minMs,
+    endMs: maxMs,
+    bucketSizeMs
+  };
+}
+
 // =============================================================================
 // Snapshot Computation
 // =============================================================================
@@ -342,6 +422,7 @@ async function computeClosetDashboardSnapshot(
   // Compute new structured data
   const trust = computeTrustData(config);
   const activity = computeActivityData(inflight, ops.lastGcAt);
+  const timeline = computeTimelineData(obsIndexAll, forecastIndexAll);
 
   // Compute Layer 0 assertions
   const assertions = {
@@ -352,7 +433,10 @@ async function computeClosetDashboardSnapshot(
       : ops.lastGcAt > 0
         ? `Last sync ${formatAgeFromMs(activity.lastGcAgeMs)}`
         : "All quiet",
-    trust: trust.isTrusted ? "Verified and trusted" : "Unverified mode"
+    trust: trust.isTrusted ? "Verified and trusted" : "Unverified mode",
+    timeline: timeline.bins.length > 0
+      ? (timeline.bins.some(b => b.obsCount > 0) ? "Data collected" : "No recent data")
+      : "Empty timeline"
   };
 
   const snapshot: ClosetDashboardSnapshot = {
@@ -380,6 +464,7 @@ async function computeClosetDashboardSnapshot(
     },
     trust,
     activity,
+    timeline,
     assertions
   };
 
@@ -439,6 +524,9 @@ export default function ClosetDashboardPage() {
   const [urlState, setUrlState] = useClosetUrlState();
 
   const isTrusted = isTrustedMode(config);
+
+  // Subscribe to location store
+  const { primaryLocation } = useSyncExternalStore(subscribeToLocationChanges, getLocationSnapshot);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -507,7 +595,7 @@ export default function ClosetDashboardPage() {
                 </Badge>
               </div>
               <p className="mt-1 text-sm text-muted-foreground">
-                Your local offline data — what's stored, what's fresh, and what's working for you.
+                Your local offline data for <span className="font-medium text-foreground">{primaryLocation.name}</span> — what's stored, what's fresh, and what's working for you.
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
@@ -690,6 +778,13 @@ export default function ClosetDashboardPage() {
                 data={snapshot.trust}
                 isExpanded={urlState.expandedSections.has("trust")}
                 onExpandChange={handleSectionToggle("trust")}
+              />
+
+              {/* Timeline Section */}
+              <TimelineSection
+                data={snapshot.timeline}
+                isExpanded={urlState.expandedSections.has("timeline")}
+                onExpandChange={handleSectionToggle("timeline")}
               />
             </div>
           )}

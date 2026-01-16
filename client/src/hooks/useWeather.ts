@@ -14,7 +14,7 @@
 import { useState, useEffect, useCallback, useRef, useSyncExternalStore } from 'react';
 import { fetchForecastsWithMetadata, getCachedForecasts, fetchObservedHourly, type ObservedConditions, type ModelForecast, type Location, type DataCompleteness } from '@/lib/weatherApi';
 import { calculateConsensus, type ConsensusResult } from '@/lib/consensus';
-import { getSyncEngine, type SyncProgress } from '@/lib/vault/sync';
+import { getSyncEngine, SyncEngine, type SyncProgress } from '@/lib/vault/sync';
 import {
   getActiveLocation,
   getPrimaryLocation,
@@ -78,30 +78,35 @@ export function useWeather() {
   ) => {
     const requestId = ++requestIdRef.current;
     const isOffline = typeof navigator !== 'undefined' ? !navigator.onLine : false;
+    const cachedForecasts = getCachedForecasts(
+      location.latitude,
+      location.longitude,
+      location.timezone
+    );
+    const hasCachedForecasts = cachedForecasts.length > 0;
+    const cachedConsensus = hasCachedForecasts ? calculateConsensus(cachedForecasts) : null;
+    const cachedRunTime = cachedConsensus?.freshness.freshestRunAvailabilityTime ?? null;
+
+    // Single state update on fetch start to avoid transient empty/loading flashes.
+    // If we have cached data for the target location, apply it immediately as the "loading snapshot".
     setState(prev => ({
       ...prev,
       isLoading: !isOffline,
       isOffline,
       error: null,
       observations: null,
-      refreshNotice: null
+      refreshNotice: null,
+      ...(hasCachedForecasts
+        ? {
+          location,
+          forecasts: cachedForecasts,
+          consensus: cachedConsensus,
+          lastUpdated: Number.isFinite(cachedRunTime ?? NaN) ? new Date((cachedRunTime as number) * 1000) : null,
+          primaryLocation: getPrimaryLocation(),
+          isPrimary: isPrimaryLocation(location)
+        }
+        : null)
     }));
-    const cachedForecasts = getCachedForecasts(
-      location.latitude,
-      location.longitude,
-      location.timezone
-    );
-    if (cachedForecasts.length > 0) {
-      const cachedConsensus = calculateConsensus(cachedForecasts);
-      const runTime = cachedConsensus.freshness.freshestRunAvailabilityTime;
-      setState(prev => ({
-        ...prev,
-        location,
-        forecasts: cachedForecasts,
-        consensus: cachedConsensus,
-        lastUpdated: Number.isFinite(runTime ?? NaN) ? new Date((runTime as number) * 1000) : null
-      }));
-    }
 
     try {
       // GATING: Only fetch observations for the PRIMARY location.
@@ -213,6 +218,20 @@ export function useWeather() {
     // Setting primary also updates active (handled by store)
     // Fetch weather for the new primary
     fetchWeather(location, { userInitiated: true, refresh: false });
+
+    // Trigger historical backfill (fire and forget)
+    // We create a standalone engine to avoid interference with the main sync effect
+    const backfillEngine = new SyncEngine({
+      location: {
+        latitude: location.latitude,
+        longitude: location.longitude,
+        timezone: location.timezone
+      }
+    });
+    console.log(`[useWeather] Triggering 365-day backfill for new primary: ${location.name}`);
+    backfillEngine.sync(undefined, { syncDays: 365 }).catch(err => {
+      console.warn('[useWeather] Backfill failed:', err);
+    });
   }, [fetchWeather]);
 
   // Refresh current location data

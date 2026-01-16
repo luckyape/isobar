@@ -1,3 +1,4 @@
-export { ClosetSection, type SectionStatus } from "./ClosetSection";
-export { TrustSection, type TrustData } from "./TrustSection";
-export { ActivitySection, type ActivityData } from "./ActivitySection";
+export * from "./ClosetSection";
+export * from "./TrustSection";
+export * from "./ActivitySection";
+export * from "./TimelineSection";
