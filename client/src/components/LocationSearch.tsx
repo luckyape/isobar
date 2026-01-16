@@ -8,6 +8,7 @@ import { Drawer, DrawerContent, DrawerTrigger, DrawerHeader, DrawerTitle } from 
 import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { CANADIAN_CITIES, type Location } from '@/lib/weatherApi';
 import { searchCities, type CityCandidate } from '@/lib/cityAutocomplete';
+import { loadCaPlaces, searchCaPlaces, type SearchResult as CaPlaceResult } from '@/lib/caPlacesLookup';
 import { hasEverSetPrimary, markPrimaryAsSet } from '@/lib/locationStore';
 import { PrimaryLocationDialog } from '@/components/PrimaryLocationDialog';
 import { cn } from '@/lib/utils';
@@ -127,6 +128,26 @@ export function LocationSearch({ currentLocation, primaryLocation, onLocationSel
     timezone: 'America/Toronto', // Default, will be corrected on select
   });
 
+  const caResultToLocation = (c: CaPlaceResult): Location => ({
+    name: c.name,
+    latitude: c.lat,
+    longitude: c.lon,
+    country: 'Canada',
+    province: c.provName ?? c.prov,
+    timezone: 'America/Toronto', // Default, will be corrected on select
+  });
+
+  const mergeRemoteResults = (local: Location[], remote: CityCandidate[]): Location[] => {
+    const seen = new Set(local.map(generateLocationId));
+    const remoteLocations = remote.map(candidateToLocation).filter(loc => {
+      const id = generateLocationId(loc);
+      if (seen.has(id)) return false;
+      seen.add(id);
+      return true;
+    });
+    return [...local, ...remoteLocations];
+  };
+
   useEffect(() => {
     if (disabled) {
       setSearchResults([]);
@@ -135,29 +156,45 @@ export function LocationSearch({ currentLocation, primaryLocation, onLocationSel
     }
 
     const timer = setTimeout(async () => {
-      if (query.length >= 2) {
-        // Cancel any pending request
-        if (abortControllerRef.current) {
-          abortControllerRef.current.abort();
-        }
-        abortControllerRef.current = new AbortController();
-
-        setIsSearching(true);
-        try {
-          const candidates = await searchCities(query, {
-            signal: abortControllerRef.current.signal,
-          });
-          setSearchResults(candidates.map(candidateToLocation));
-        } catch (err) {
-          // Ignore abort errors
-          if ((err as Error).name !== 'AbortError') {
-            console.error('Search error:', err);
-          }
-        } finally {
-          setIsSearching(false);
-        }
-      } else {
+      if (query.length < 2) {
         setSearchResults([]);
+        setIsSearching(false);
+        return;
+      }
+
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+      abortControllerRef.current = new AbortController();
+      const signal = abortControllerRef.current.signal;
+
+      setIsSearching(true);
+      try {
+        const store = await loadCaPlaces();
+        if (signal.aborted) return;
+
+        const localResults = searchCaPlaces(store, query, { limit: 10 });
+        if (signal.aborted) return;
+
+        const localLocations = localResults.map(caResultToLocation);
+        setSearchResults(localLocations);
+
+        const shouldFetchRemote = localResults.length === 0;
+        if (!shouldFetchRemote) {
+          setIsSearching(false);
+          return;
+        }
+
+        const remote = await searchCities(query, { signal, limit: 10 });
+        if (signal.aborted) return;
+        setSearchResults(mergeRemoteResults(localLocations, remote));
+      } catch (err) {
+        // Ignore abort errors
+        if ((err as Error).name !== 'AbortError') {
+          console.error('Search error:', err);
+        }
+      } finally {
+        setIsSearching(false);
       }
     }, 300);
 

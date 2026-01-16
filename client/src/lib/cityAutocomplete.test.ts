@@ -247,5 +247,30 @@ describe('cityAutocomplete', () => {
             expect(results).toEqual([]);
             expect(getProviderStatus().photon.lastStatus).toBe('error');
         });
+
+        it('should handle Photon fetch rejection without throwing', async () => {
+            mockFetch.mockRejectedValueOnce(new Error('network down'));
+
+            const controller = new AbortController();
+            const results = await searchCities('Calgary', { signal: controller.signal });
+
+            expect(results).toEqual([]);
+            expect(getProviderStatus().photon.lastStatus).toBe('error');
+        });
+
+        it('should handle Nominatim rejection without crashing search', async () => {
+            mockFetch
+                .mockResolvedValueOnce({
+                    ok: true,
+                    json: () => Promise.resolve({ features: [] }),
+                })
+                .mockRejectedValueOnce(new Error('nominatim offline'));
+
+            const controller = new AbortController();
+            const results = await searchCities('Montreal', { signal: controller.signal, canadianThreshold: 5 });
+
+            expect(results).toEqual([]);
+            expect(getProviderStatus().nominatim.lastStatus).toBe('error');
+        });
     });
 });

@@ -1,11 +1,13 @@
 import React from 'react';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { LocationSearch } from './LocationSearch';
 import { hasEverSetPrimary, markPrimaryAsSet } from '@/lib/locationStore';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { CANADIAN_CITIES } from '@/lib/weatherApi';
 import { toast } from 'sonner';
+import { loadCaPlaces, searchCaPlaces } from '@/lib/caPlacesLookup';
+import { searchCities } from '@/lib/cityAutocomplete';
 
 // Mock dependencies
 vi.mock('@/lib/locationStore', () => ({
@@ -22,6 +24,17 @@ vi.mock('sonner', () => ({
         success: vi.fn(),
     },
 }));
+
+vi.mock('@/lib/caPlacesLookup', () => ({
+    loadCaPlaces: vi.fn(),
+    searchCaPlaces: vi.fn(),
+}));
+
+vi.mock('@/lib/cityAutocomplete', () => ({
+    searchCities: vi.fn(),
+}));
+
+let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
 
 // Mock ResizeObserver for Radix UI
 global.ResizeObserver = class ResizeObserver {
@@ -43,10 +56,18 @@ describe('LocationSearch', () => {
 
     beforeEach(() => {
         vi.clearAllMocks();
+        consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => { });
         // Default to Desktop view for easier Dialog testing
         (useMediaQuery as any).mockReturnValue(true);
         // Default to "Never set primary" for fresh state
         (hasEverSetPrimary as any).mockReturnValue(false);
+        (loadCaPlaces as any).mockResolvedValue({} as any);
+        (searchCaPlaces as any).mockReturnValue([]);
+        (searchCities as any).mockResolvedValue([]);
+    });
+
+    afterEach(() => {
+        consoleErrorSpy.mockRestore();
     });
 
     const openSearch = () => {
@@ -220,6 +241,111 @@ describe('LocationSearch', () => {
 
             // Verify onSetPrimary was NEVER called
             expect(onSetPrimary).not.toHaveBeenCalled();
+        });
+    });
+
+    describe('Search interactions', () => {
+        it('shows local results when typing a query', async () => {
+            (searchCaPlaces as any).mockReturnValue([
+                {
+                    id: 1,
+                    name: 'Saint Test',
+                    prov: 'NB',
+                    provName: 'New Brunswick',
+                    lat: 1,
+                    lon: -1,
+                    pop: 1000,
+                    keys: ['saint test'],
+                    matchType: 'prefix',
+                    score: 2,
+                },
+            ]);
+
+            render(
+                <LocationSearch
+                    currentLocation={MOCK_TORONTO}
+                    onLocationSelect={onLocationSelect}
+                />
+            );
+
+            openSearch();
+
+            const input = screen.getByPlaceholderText('Search Canadian cities...');
+            fireEvent.change(input, { target: { value: 'saint' } });
+
+            await act(async () => {
+                await Promise.resolve();
+            });
+
+            await waitFor(() => {
+                expect(searchCaPlaces).toHaveBeenCalledWith(expect.anything(), 'saint', expect.objectContaining({ limit: 10 }));
+                expect(screen.getByText('Saint Test')).toBeTruthy();
+            });
+        });
+
+        it('falls back to remote provider when local results are empty', async () => {
+            (searchCaPlaces as any).mockReturnValue([]);
+            (searchCities as any).mockResolvedValue([
+                {
+                    name: 'Remote City',
+                    region: 'Quebec',
+                    countryCode: 'CA',
+                    lat: 10,
+                    lon: -20,
+                    source: 'photon',
+                    raw: {},
+                },
+            ]);
+
+            render(
+                <LocationSearch
+                    currentLocation={MOCK_TORONTO}
+                    onLocationSelect={onLocationSelect}
+                />
+            );
+
+            openSearch();
+
+            const input = screen.getByPlaceholderText('Search Canadian cities...');
+            fireEvent.change(input, { target: { value: 'remote' } });
+
+            await act(async () => {
+                await Promise.resolve();
+            });
+
+            await waitFor(() => {
+                expect(searchCities).toHaveBeenCalledWith('remote', expect.objectContaining({ limit: 10 }));
+                expect(screen.getByText('Remote City')).toBeTruthy();
+            });
+        });
+
+        it('logs and recovers when local dataset fails to load', async () => {
+            (loadCaPlaces as any).mockRejectedValueOnce(new SyntaxError('Unexpected token < in JSON'));
+
+            render(
+                <LocationSearch
+                    currentLocation={MOCK_TORONTO}
+                    onLocationSelect={onLocationSelect}
+                />
+            );
+
+            openSearch();
+
+            const input = screen.getByPlaceholderText('Search Canadian cities...');
+            fireEvent.change(input, { target: { value: 'err' } });
+
+            await act(async () => {
+                await Promise.resolve();
+            });
+
+            await waitFor(() => {
+                expect(consoleErrorSpy).toHaveBeenCalled();
+                expect(searchCaPlaces).not.toHaveBeenCalled();
+                expect(searchCities).not.toHaveBeenCalled();
+            });
+
+            // UI should show empty state, not crash
+            expect(screen.getByText('No locations found.')).toBeTruthy();
         });
     });
 });
