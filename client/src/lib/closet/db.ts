@@ -347,6 +347,16 @@ export class ClosetDB {
         });
     }
 
+    async getAllObservationIndexEntries(): Promise<ObservationIndexEntry[]> {
+        await this.open();
+        return this.promisifyRequest<ObservationIndexEntry[]>(
+            this.db!
+                .transaction(STORE_OBS_INDEX, 'readonly')
+                .objectStore(STORE_OBS_INDEX)
+                .getAll()
+        ) ?? [];
+    }
+
     // =========================================================================
     // Forecast Index Operations
     // =========================================================================
@@ -371,6 +381,16 @@ export class ClosetDB {
             request.onerror = () => reject(request.error);
             request.onsuccess = () => resolve(request.result ?? []);
         });
+    }
+
+    async getAllForecastIndexEntries(): Promise<ForecastIndexEntry[]> {
+        await this.open();
+        return this.promisifyRequest<ForecastIndexEntry[]>(
+            this.db!
+                .transaction(STORE_FORECAST_INDEX, 'readonly')
+                .objectStore(STORE_FORECAST_INDEX)
+                .getAll()
+        ) ?? [];
     }
 
     async getForecastsByGridKey(gridKey: string): Promise<ForecastIndexEntry[]> {
