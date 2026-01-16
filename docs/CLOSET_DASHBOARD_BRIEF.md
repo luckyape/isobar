@@ -46,7 +46,8 @@ Secondary: support/debug workflows where users can copy a single JSON blob for r
 
 2) **Coverage**
    - `obsIndexCount`, `forecastIndexCount`
-   - newest observation bucket, newest forecast runtime
+   - newest observation bucket + “data age” (e.g. “Latest obs: 4h ago”)
+   - newest forecast runtime
 
 3) **Retention**
    - manifests in window, total manifest refs
@@ -81,6 +82,11 @@ Secondary: support/debug workflows where users can copy a single JSON blob for r
 Payload name/version:
 - `version: "closet_dashboard_v1"`
 
+Environment context (required):
+- `environment.platform`: `web` | `ios` | `android`
+- `environment.storage_quota_tier`: `low` | `medium` | `high` | `unknown` (derived from browser storage estimate)
+- `environment.client_version`: app/build version string (or `dev`/`unknown` if unavailable)
+
 Intended usage:
 - Paste into an assistant/support thread.
 - Should be sufficient to reason about:
@@ -92,6 +98,10 @@ Intended usage:
 Export levels:
 - `summary`: no raw index arrays; only `ops` + `derived`.
 - `full`: includes `raw.observationIndexEntries`, `raw.forecastIndexEntries`, and `raw.inflight` (capped by list limit).
+
+Privacy/sanitization:
+- The export MUST redact common secret-like fields if they appear unexpectedly (e.g. `authorization`, `cookie`, `token`, `secret`, `password`, `apiKey`).
+- Public keys (e.g. manifest pubkeys) are not considered secret and may be included.
 
 Size guidance:
 - Always display approximate size to the user.
@@ -109,4 +119,3 @@ Size guidance:
 - Does the dashboard remain useful in “empty closet” state?
 - Is the assistant JSON payload understandable and stable?
 - Are destructive actions clearly separated into `/ops/closet`?
-

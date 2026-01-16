@@ -15,12 +15,25 @@ import { getClosetDB, type ForecastIndexEntry, type ObservationIndexEntry } from
 
 type ExportLevel = "summary" | "full";
 
+type Platform = "web" | "ios" | "android";
+
 function formatBytes(bytes: number): string {
   if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
   const k = 1024;
   const sizes = ["B", "KB", "MB", "GB"];
   const i = Math.min(sizes.length - 1, Math.floor(Math.log(bytes) / Math.log(k)));
   return `${(bytes / Math.pow(k, i)).toFixed(2)} ${sizes[i]}`;
+}
+
+function formatAgeFromMs(ageMs: number): string {
+  if (!Number.isFinite(ageMs) || ageMs < 0) return "—";
+  const totalMinutes = Math.floor(ageMs / 60000);
+  if (totalMinutes < 1) return "just now";
+  if (totalMinutes < 60) return `${totalMinutes}m ago`;
+  const totalHours = Math.floor(totalMinutes / 60);
+  if (totalHours < 24) return `${totalHours}h ago`;
+  const totalDays = Math.floor(totalHours / 24);
+  return `${totalDays}d ago`;
 }
 
 function formatDate(timestamp: number): string {
@@ -68,14 +81,97 @@ function computeMinuteKey(isoLike: string): string | null {
   return m?.[1] ?? null;
 }
 
+function parseMinuteKeyUtc(minuteKey: string): number | null {
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(minuteKey)) return null;
+  const ms = Date.parse(`${minuteKey}:00Z`);
+  return Number.isFinite(ms) ? ms : null;
+}
+
+function detectPlatform(): Platform {
+  const ua = typeof navigator !== "undefined" ? navigator.userAgent ?? "" : "";
+  if (/android/i.test(ua)) return "android";
+  if (/iphone|ipad|ipod/i.test(ua)) return "ios";
+  return "web";
+}
+
+async function getStorageEstimate(): Promise<{ quotaBytes: number | null; usageBytes: number | null }> {
+  try {
+    const estimate = await navigator.storage?.estimate?.();
+    const quotaBytes = typeof estimate?.quota === "number" ? estimate.quota : null;
+    const usageBytes = typeof estimate?.usage === "number" ? estimate.usage : null;
+    return { quotaBytes, usageBytes };
+  } catch {
+    return { quotaBytes: null, usageBytes: null };
+  }
+}
+
+function computeStorageQuotaTier(quotaBytes: number | null): "unknown" | "low" | "medium" | "high" {
+  if (!Number.isFinite(quotaBytes ?? NaN)) return "unknown";
+  if ((quotaBytes as number) < 250 * 1024 * 1024) return "low"; // < 250MB
+  if ((quotaBytes as number) < 2 * 1024 * 1024 * 1024) return "medium"; // < 2GB
+  return "high";
+}
+
 function nowIso(): string {
   return new Date().toISOString();
+}
+
+function isSensitiveKeyName(key: string): boolean {
+  const k = key.toLowerCase();
+  // Intentionally NOT redacting "pubKey"/"publicKey" because those are expected to be shareable.
+  if (k.includes("public")) return false;
+  if (k.includes("pubkey")) return false;
+  return (
+    k.includes("authorization") ||
+    k.includes("cookie") ||
+    k.includes("token") ||
+    k.includes("secret") ||
+    k.includes("password") ||
+    k.includes("apikey") ||
+    k.includes("api_key") ||
+    k.includes("openai_api_key") ||
+    k.includes("bearer")
+  );
+}
+
+function sanitizeObject(value: unknown): { value: unknown; redacted: boolean } {
+  if (!value || typeof value !== "object") return { value, redacted: false };
+  if (Array.isArray(value)) return { value, redacted: false };
+
+  let redacted = false;
+  const out: Record<string, unknown> = {};
+
+  for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+    if (isSensitiveKeyName(k)) {
+      out[k] = "[REDACTED]";
+      redacted = true;
+      continue;
+    }
+    if (v && typeof v === "object" && !Array.isArray(v)) {
+      const nested = sanitizeObject(v);
+      out[k] = nested.value;
+      redacted = redacted || nested.redacted;
+    } else {
+      out[k] = v;
+    }
+  }
+
+  return { value: out, redacted };
 }
 
 type ClosetDashboardSnapshot = {
   version: "closet_dashboard_v1";
   generatedAt: string;
   exportLevel: ExportLevel;
+  environment: {
+    platform: Platform;
+    client_version: string;
+    storage_quota_tier: "unknown" | "low" | "medium" | "high";
+    storage_estimate: { quotaBytes: number | null; usageBytes: number | null };
+  };
+  privacy: {
+    redactionApplied: boolean;
+  };
   config: OpsConfig;
   ops: OpsSnapshot;
   derived: {
@@ -85,6 +181,7 @@ type ClosetDashboardSnapshot = {
     observationSources: Array<{ key: string; count: number }>;
     forecastModels: Array<{ key: string; count: number }>;
     newestObservationBucket: string | null;
+    newestObservationAgeMs: number | null;
     newestForecastRunTime: string | null;
   };
   raw?: {
@@ -102,11 +199,12 @@ async function computeClosetDashboardSnapshot(
   const closetDB = getClosetDB();
   await closetDB.open();
 
-  const [ops, obsIndexAll, forecastIndexAll, inflight] = await Promise.all([
+  const [ops, obsIndexAll, forecastIndexAll, inflight, storageEstimate] = await Promise.all([
     computeOpsSnapshot(config),
     closetDB.getAllObservationIndexEntries(),
     closetDB.getAllForecastIndexEntries(),
-    closetDB.getAllInflight()
+    closetDB.getAllInflight(),
+    getStorageEstimate()
   ]);
 
   const obsIndexCount = obsIndexAll.length;
@@ -119,6 +217,10 @@ async function computeClosetDashboardSnapshot(
       .sort()
       .at(-1) ?? null;
 
+  const newestObservationBucketMs = newestObservationBucket ? parseMinuteKeyUtc(newestObservationBucket) : null;
+  const newestObservationAgeMs =
+    typeof newestObservationBucketMs === "number" ? Math.max(0, Date.now() - newestObservationBucketMs) : null;
+
   const newestForecastRunTime =
     forecastIndexAll
       .map((e) => e.runTime)
@@ -129,11 +231,23 @@ async function computeClosetDashboardSnapshot(
   const observationSources = computeHistogram(obsIndexAll, (e) => e.source).slice(0, 12);
   const forecastModels = computeHistogram(forecastIndexAll, (e) => e.model).slice(0, 12);
 
+  const sanitizedConfig = sanitizeObject(config);
+  const clientVersion = import.meta.env.VITE_APP_VERSION ?? (import.meta.env.DEV ? "dev" : "unknown");
+  const platform = detectPlatform();
+  const storageQuotaTier = computeStorageQuotaTier(storageEstimate.quotaBytes);
+
   const snapshot: ClosetDashboardSnapshot = {
     version: "closet_dashboard_v1",
     generatedAt: nowIso(),
     exportLevel,
-    config,
+    environment: {
+      platform,
+      client_version: String(clientVersion),
+      storage_quota_tier: storageQuotaTier,
+      storage_estimate: storageEstimate
+    },
+    privacy: { redactionApplied: sanitizedConfig.redacted },
+    config: sanitizedConfig.value as OpsConfig,
     ops,
     derived: {
       inflightCount: inflight.length,
@@ -142,6 +256,7 @@ async function computeClosetDashboardSnapshot(
       observationSources,
       forecastModels,
       newestObservationBucket,
+      newestObservationAgeMs,
       newestForecastRunTime
     }
   };
@@ -287,6 +402,14 @@ export default function ClosetDashboardPage() {
                     Newest obs bucket: <span className="font-mono">{snapshot.derived.newestObservationBucket ?? "—"}</span>
                   </div>
                   <div className="mt-1 text-xs text-muted-foreground">
+                    Latest obs:{" "}
+                    <span className="font-mono">
+                      {snapshot.derived.newestObservationAgeMs === null
+                        ? "—"
+                        : formatAgeFromMs(snapshot.derived.newestObservationAgeMs)}
+                    </span>
+                  </div>
+                  <div className="mt-1 text-xs text-muted-foreground">
                     Newest forecast run: <span className="font-mono">{snapshot.derived.newestForecastRunTime ?? "—"}</span>
                   </div>
                 </CardContent>
@@ -398,6 +521,9 @@ export default function ClosetDashboardPage() {
                     </CardDescription>
                   </CardHeader>
                   <CardContent className="space-y-3">
+                    <div className="text-xs text-muted-foreground">
+                      Privacy: common secret-like keys (token/authorization/cookie/password) are redacted if they appear in config.
+                    </div>
                     <div className="flex flex-wrap items-end gap-3">
                       <div className="flex items-center gap-2">
                         <Label htmlFor="exportLevel">Export</Label>
@@ -519,4 +645,3 @@ export default function ClosetDashboardPage() {
     </div>
   );
 }
-
