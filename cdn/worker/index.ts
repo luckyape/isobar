@@ -24,7 +24,7 @@ export interface Env {
 
 const CORS_HEADERS: Record<string, string> = {
     'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'GET, HEAD, OPTIONS',
+    'Access-Control-Allow-Methods': 'GET, HEAD, POST, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type, If-None-Match, Range',
     'Access-Control-Max-Age': '86400'
 };
@@ -123,10 +123,16 @@ export default {
         console.log(`[cron] Ingest triggered at ${new Date().toISOString()}`);
 
         const storage = new R2Storage(env.BUCKET);
-        const latitude = parseFloat(env.INGEST_LATITUDE) || 43.6532;
-        const longitude = parseFloat(env.INGEST_LONGITUDE) || -79.3832;
-        const timezone = env.INGEST_TIMEZONE || 'America/Toronto';
+        const latitude = parseFloat(env.INGEST_LATITUDE);
+        const longitude = parseFloat(env.INGEST_LONGITUDE);
+        const timezone = env.INGEST_TIMEZONE;
         const manifestSigningKeyHex = env.MANIFEST_PRIVATE_KEY_HEX?.trim() || undefined;
+
+        if (!Number.isFinite(latitude) || !Number.isFinite(longitude) || !timezone) {
+            const error = new Error('[cron] Missing required environment variables INGEST_LATITUDE, INGEST_LONGITUDE, or INGEST_TIMEZONE');
+            console.error(error.message);
+            throw error;
+        }
 
         const cron = (controller as any)?.cron as string | undefined;
         const isHourlyObs = cron === '0 * * * *';
@@ -194,6 +200,64 @@ export default {
             res.headers.set('X-Weather-Location-Source', effectiveLocationSource);
             return res;
         };
+
+        // Route: POST /ingest (trigger manual ingest)
+        const ingestMatch = path.match(/^\/ingest$/);
+        if (ingestMatch && request.method === 'POST') {
+            try {
+                const body = await request.json() as any;
+                const latitude = typeof body.latitude === 'number' ? body.latitude : parseFloat(body.latitude);
+                const longitude = typeof body.longitude === 'number' ? body.longitude : parseFloat(body.longitude);
+                const timezone = body.timezone || 'UTC';
+
+                if (
+                    !Number.isFinite(latitude) || latitude < -90 || latitude > 90 ||
+                    !Number.isFinite(longitude) || longitude < -180 || longitude > 180
+                ) {
+                    return addObservabilityHeaders(jsonResponse(
+                        { error: 'INVALID_LOCATION', message: 'latitude must be -90..90, longitude must be -180..180' },
+                        { status: 400, headers: { 'Cache-Control': CACHE_ERROR } }
+                    ));
+                }
+
+                if (!timezone || typeof timezone !== 'string' || timezone.trim() === '') {
+                    return addObservabilityHeaders(jsonResponse(
+                        { error: 'INVALID_TIMEZONE', message: 'timezone must be a non-empty string' },
+                        { status: 400, headers: { 'Cache-Control': CACHE_ERROR } }
+                    ));
+                }
+
+                const storage = new R2Storage(env.BUCKET);
+                const manifestSigningKeyHex = env.MANIFEST_PRIVATE_KEY_HEX?.trim() || undefined;
+
+                const result = await runIngest({
+                    latitude,
+                    longitude,
+                    timezone,
+                    storage,
+                    manifestSigningKeyHex,
+                    includeForecasts: true,
+                    includeObservations: true,
+                    now: new Date()
+                });
+
+                return addObservabilityHeaders(jsonResponse(
+                    {
+                        success: true,
+                        manifestHash: result.manifestHash,
+                        artifacts: result.artifacts.length,
+                        timestamp: result.timestamp
+                    },
+                    { status: 200, headers: { 'Cache-Control': CACHE_ERROR } }
+                ));
+            } catch (error) {
+                console.error('[ingest] Failed:', error);
+                return addObservabilityHeaders(jsonResponse(
+                    { error: 'INGEST_FAILED', message: (error as Error).message },
+                    { status: 500, headers: { 'Cache-Control': CACHE_ERROR } }
+                ));
+            }
+        }
 
         // Handle preflight
         if (request.method === 'OPTIONS') {

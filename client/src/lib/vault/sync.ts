@@ -56,7 +56,6 @@ export type SyncProgressCallback = (progress: SyncProgress) => void;
 export class SyncEngine {
     private vault: Vault;
     private config: SyncConfig;
-    private abortController: AbortController | null = null;
     private scopeId?: string;
 
     constructor(config?: Partial<SyncConfig>) {
@@ -87,9 +86,9 @@ export class SyncEngine {
     /**
      * Run a full sync cycle.
      */
-    async sync(onProgress?: SyncProgressCallback, options?: { syncDays?: number }): Promise<SyncState> {
+    async sync(onProgress?: SyncProgressCallback, options?: { syncDays?: number; signal?: AbortSignal }): Promise<SyncState> {
         await this.vault.open();
-        this.abortController = new AbortController();
+        const signal = options?.signal;
 
         // Load pinned manifest public key (throws in PROD if missing)
         const pinnedManifestPubKeyHex = getManifestPubKeyHex();
@@ -106,7 +105,7 @@ export class SyncEngine {
             // 1. Fetch root.json to get latest manifest date
             let root: { latest?: string } | null = null;
             try {
-                root = await this.fetchJson<{ latest?: string }>(this.scopedPath('manifests/root.json'));
+                root = await this.fetchJson<{ latest?: string }>(this.scopedPath('manifests/root.json'), signal);
             } catch (err) {
                 const status = (err as any)?.status;
                 if (status === 404 && this.scopeId) {
@@ -146,10 +145,10 @@ export class SyncEngine {
                 await this.vault.getMeta(this.metaKey(MANIFEST_INDEX_KEY)) ?? {};
 
             for (const date of dates) {
-                if (this.abortController.signal.aborted) break;
+                if (signal?.aborted) throw new Error('Aborted');
 
                 try {
-                    const dateResults = await this.fetchManifestsForDate(date, pinnedManifestPubKeyHex);
+                    const dateResults = await this.fetchManifestsForDate(date, pinnedManifestPubKeyHex, signal);
                     manifests.push(...dateResults.map((r) => r.data));
 
                     // Index manifest hashes
@@ -200,7 +199,7 @@ export class SyncEngine {
 
                     try {
                         // Phase 2 (unlocked): Fetch bytes (slow network op)
-                        const blob = await this.fetchAndVerify(`chunks/${hash}`, hash);
+                        const blob = await this.fetchAndVerify(`chunks/${hash}`, hash, signal);
 
                         // Phase 3 (locked): Commit to vault and clear in-flight
                         await withClosetLock('closet', async () => {
@@ -227,7 +226,8 @@ export class SyncEngine {
                     console.warn(`Failed to download ${hash}:`, error);
                     chunkProgress.failed++;
                     onProgress?.(chunkProgress);
-                }
+                },
+                signal
             );
 
             // 6. Update sync state
@@ -258,16 +258,7 @@ export class SyncEngine {
         } catch (error) {
             console.error(`[SyncEngine] Sync failed from ${this.config.cdnUrl}:`, error);
             throw error;
-        } finally {
-            this.abortController = null;
         }
-    }
-
-    /**
-     * Abort an in-progress sync.
-     */
-    abort(): void {
-        this.abortController?.abort();
     }
 
     /**
@@ -288,14 +279,15 @@ export class SyncEngine {
      */
     private async fetchManifestsForDate(
         date: string,
-        pinnedManifestPubKeyHex?: string
+        pinnedManifestPubKeyHex?: string,
+        signal?: AbortSignal
     ): Promise<Array<{ hash: string; data: DailyManifest }>> {
         // List manifests for the date
         const listUrl = `${this.config.cdnUrl}/${this.scopedPath(`manifests/${date}/`)}`;
 
         try {
             // Fetch the list of manifest hashes
-            const response = await fetch(listUrl, { signal: this.abortController?.signal });
+            const response = await fetch(listUrl, { signal });
 
             if (!response.ok) {
                 return [];
@@ -306,9 +298,9 @@ export class SyncEngine {
 
             // Fetch each manifest
             for (const hash of hashes) {
-                if (this.abortController?.signal.aborted) break;
+                if (signal?.aborted) throw new Error('Aborted');
                 try {
-                    const manifestBlob = await this.fetchAndVerify(`manifests/${date}/${hash}`, hash);
+                    const manifestBlob = await this.fetchAndVerify(`manifests/${date}/${hash}`, hash, signal);
                     // Verify signature if pinned key is configured
                     const manifest = await unpackageManifest(manifestBlob, pinnedManifestPubKeyHex);
                     results.push({ hash, data: manifest });
@@ -330,9 +322,9 @@ export class SyncEngine {
     /**
      * Fetch and verify a blob by hash.
      */
-    private async fetchAndVerify(path: string, expectedHash: string): Promise<Uint8Array> {
+    private async fetchAndVerify(path: string, expectedHash: string, signal?: AbortSignal): Promise<Uint8Array> {
         const url = `${this.config.cdnUrl}/${this.scopedPath(path)}`;
-        const response = await fetch(url, { signal: this.abortController?.signal });
+        const response = await fetch(url, { signal });
 
         if (!response.ok) {
             throw new Error(`Fetch failed: ${response.status}`);
@@ -351,9 +343,9 @@ export class SyncEngine {
     /**
      * Fetch JSON from CDN.
      */
-    private async fetchJson<T>(path: string): Promise<T> {
+    private async fetchJson<T>(path: string, signal?: AbortSignal): Promise<T> {
         const url = `${this.config.cdnUrl}/${path}`;
-        const response = await fetch(url, { signal: this.abortController?.signal });
+        const response = await fetch(url, { signal });
 
         if (!response.ok) {
             const error = new Error(`Fetch failed: ${response.status}`);
@@ -370,7 +362,8 @@ export class SyncEngine {
     private async parallelDownload(
         items: string[],
         download: (item: string) => Promise<void>,
-        onError: (item: string, error: unknown) => void
+        onError: (item: string, error: unknown) => void,
+        signal?: AbortSignal
     ): Promise<void> {
         const queue = [...items];
         const inFlight = new Set<Promise<void>>();
@@ -378,6 +371,7 @@ export class SyncEngine {
         while (queue.length > 0 || inFlight.size > 0) {
             // Start new downloads up to concurrency limit
             while (queue.length > 0 && inFlight.size < this.config.concurrency) {
+                if (signal?.aborted) break;
                 const item = queue.shift()!;
                 const promise = download(item)
                     .catch((error) => onError(item, error))
@@ -391,8 +385,8 @@ export class SyncEngine {
             }
 
             // Check for abort
-            if (this.abortController?.signal.aborted) {
-                break;
+            if (signal?.aborted) {
+                throw new Error('Aborted');
             }
         }
     }

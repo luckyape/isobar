@@ -3,7 +3,7 @@
  * Tabbed suite for hourly model comparisons with chart/table modes.
  */
 
-import React, { useMemo, useState, useEffect } from 'react';
+import React, { useMemo, useState, useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { Thermometer, Droplets, Wind, Cloud, Layers, Navigation, List as ListIcon, Crown } from 'lucide-react';
 import {
@@ -1463,16 +1463,30 @@ export function GraphsPanel({
   // 3-state logic: loading | none | vault | error
   type ObservationsStatus = 'loading' | 'none' | 'vault' | 'error';
   const [observationsStatus, setObservationsStatus] = useState<ObservationsStatus>('loading');
-  const [fetchedObservations, setFetchedObservations] = useState<ObservationData | null>(null);
+  const [fetchedObservations, setFetchedObservations] = useState<ObservationData | null | undefined>(undefined);
   const [fetchError, setFetchError] = useState<Error | null>(null);
+  const observationsCacheRef = useRef<Map<string, ObservationData | null>>(new Map());
+  const observationsRequestIdRef = useRef(0);
 
   useEffect(() => {
     // GATING: Only fetch observations for primary location
     // When browsing non-primary, observations are disabled
     if (!location || !isPrimary) {
       setObservationsStatus('none');
-      setFetchedObservations(null);
+      setFetchedObservations(undefined);
+      setFetchError(null);
       return;
+    }
+
+    const cacheKey = `${location.latitude.toFixed(4)},${location.longitude.toFixed(4)}`;
+    const hasCached = observationsCacheRef.current.has(cacheKey);
+    if (hasCached) {
+      const cached = observationsCacheRef.current.get(cacheKey) ?? null;
+      setFetchedObservations(cached);
+      setObservationsStatus(cached === null ? 'none' : 'vault');
+    } else {
+      setFetchedObservations(undefined);
+      setObservationsStatus('loading');
     }
 
     // Determine time range from forecasts or consensus
@@ -1485,14 +1499,11 @@ export function GraphsPanel({
     const startMs = now - 24 * 60 * 60 * 1000;
     const endMs = now + 48 * 60 * 60 * 1000;
 
+    const requestId = ++observationsRequestIdRef.current;
     let mounted = true;
     async function load() {
       try {
         setFetchError(null);
-        // Reset to loading if location changes, though strictly we could keep old data while loading.
-        // For strict correctness, we should probably stay in previous state or loading.
-        // Let's set loading to conform to "on mount + before request: loading" rule.
-        if (mounted) setObservationsStatus('loading');
 
         const lat = location!.latitude;
         const lon = location!.longitude;
@@ -1504,7 +1515,8 @@ export function GraphsPanel({
           lat,
           lon
         );
-        if (mounted) {
+        if (mounted && observationsRequestIdRef.current === requestId) {
+          observationsCacheRef.current.set(cacheKey, data);
           if (data === null) {
             setFetchedObservations(null);
             setObservationsStatus('none');
@@ -1515,15 +1527,20 @@ export function GraphsPanel({
         }
       } catch (e) {
         console.error('Failed to fetch observations', e);
-        if (mounted) {
-          setFetchError(e as Error);
-          setObservationsStatus('error');
+        if (mounted && observationsRequestIdRef.current === requestId) {
+          // If we have cached observations for this location, keep rendering them and
+          // avoid flipping the UI into an "error" empty state.
+          if (!hasCached) {
+            setFetchError(e as Error);
+            setObservationsStatus('error');
+            setFetchedObservations(null);
+          }
         }
       }
     }
     load();
     return () => { mounted = false; };
-  }, [location, lastUpdated]);
+  }, [location?.latitude, location?.longitude, isPrimary, lastUpdated?.getTime()]);
 
 
 
@@ -1716,8 +1733,18 @@ export function GraphsPanel({
       };
     }
 
+    // Observations are only fetched for the primary location.
+    if (!isPrimary) {
+      return {
+        temperature: { available: false, reason: 'Primary only', detail: 'Observed station data is only shown for the primary location' },
+        precipitation: { available: false, reason: 'Primary only', detail: 'Observed station data is only shown for the primary location' },
+        wind: { available: false, reason: 'Primary only', detail: 'Observed station data is only shown for the primary location' },
+        conditions: { available: false, reason: 'Primary only', detail: 'Observed station data is only shown for the primary location' }
+      };
+    }
+
     // Fetch error occurred
-    if (fetchError) {
+    if (fetchError && (fetchedObservations === undefined || fetchedObservations === null)) {
       return {
         temperature: { available: false, reason: 'Fetch failed', detail: `Failed to fetch observations: ${fetchError.message}` },
         precipitation: { available: false, reason: 'Fetch failed', detail: `Failed to fetch observations: ${fetchError.message}` },
@@ -1778,7 +1805,7 @@ export function GraphsPanel({
     }
 
     return status;
-  }, [location, fetchError, fetchedObservations, observedTempByEpoch, observedPrecipByEpoch, observedWindByEpoch, observedConditionsByEpoch]);
+  }, [location, isPrimary, fetchError, fetchedObservations, observedTempByEpoch, observedPrecipByEpoch, observedWindByEpoch, observedConditionsByEpoch]);
 
 
   const title = activeGraph === 'wind' && windMode === 'matrix'

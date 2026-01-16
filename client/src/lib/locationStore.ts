@@ -98,7 +98,7 @@ function savePrimaryLocation(location: Location): void {
  * Get the initial primary location.
  * Priority: saved primary > first favorite > CANADIAN_CITIES[0]
  */
-function getInitialPrimaryLocation(): Location {
+function getInitialPrimaryLocation(): Location | null {
     // 1. Check for saved primary
     const saved = loadPrimaryLocation();
     if (saved) return saved;
@@ -109,16 +109,17 @@ function getInitialPrimaryLocation(): Location {
         return favorites[0];
     }
 
-    // 3. Fall back to Toronto (first Canadian city)
-    return CANADIAN_CITIES[0];
+    // 3. No primary location available
+    // User Requirement: No hidden defaults. Explicitly return null if no primary set.
+    return null;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Store State (Module-level singleton)
 // ─────────────────────────────────────────────────────────────────────────────
 
-let _primaryLocation: Location = getInitialPrimaryLocation();
-let _activeLocation: Location = _primaryLocation; // Start viewing primary
+let _primaryLocation: Location | null = getInitialPrimaryLocation();
+let _activeLocation: Location = _primaryLocation || CANADIAN_CITIES[0]; // Active must be valid, confirm fallback for active only
 const _listeners: Set<() => void> = new Set();
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -135,7 +136,7 @@ export function getActiveLocation(): Location {
 /**
  * Get the primary "weatherman assigned" location.
  */
-export function getPrimaryLocation(): Location {
+export function getPrimaryLocation(): Location | null {
     return _primaryLocation;
 }
 
@@ -165,6 +166,7 @@ export function setPrimaryLocation(location: Location): void {
  */
 export function isPrimaryLocation(location: Location | null): boolean {
     if (!location) return false;
+    if (!location || !_primaryLocation) return false;
     return generateLocationId(location) === generateLocationId(_primaryLocation);
 }
 
@@ -172,6 +174,7 @@ export function isPrimaryLocation(location: Location | null): boolean {
  * Check if currently viewing the primary location.
  */
 export function isViewingPrimary(): boolean {
+    if (!_primaryLocation) return false;
     return generateLocationId(_activeLocation) === generateLocationId(_primaryLocation);
 }
 
@@ -183,19 +186,19 @@ export function isViewingPrimary(): boolean {
 // Only update when state actually changes to prevent infinite loops
 let _cachedSnapshot: {
     activeLocation: Location;
-    primaryLocation: Location;
+    primaryLocation: Location | null;
     isViewingPrimary: boolean;
 } = {
     activeLocation: _activeLocation,
     primaryLocation: _primaryLocation,
-    isViewingPrimary: generateLocationId(_activeLocation) === generateLocationId(_primaryLocation)
+    isViewingPrimary: _primaryLocation ? generateLocationId(_activeLocation) === generateLocationId(_primaryLocation) : false
 };
 
 function updateCachedSnapshot(): void {
     _cachedSnapshot = {
         activeLocation: _activeLocation,
         primaryLocation: _primaryLocation,
-        isViewingPrimary: generateLocationId(_activeLocation) === generateLocationId(_primaryLocation)
+        isViewingPrimary: _primaryLocation ? generateLocationId(_activeLocation) === generateLocationId(_primaryLocation) : false
     };
 }
 
@@ -222,7 +225,7 @@ export function subscribeToLocationChanges(listener: () => void): () => void {
  */
 export function getLocationSnapshot(): {
     activeLocation: Location;
-    primaryLocation: Location;
+    primaryLocation: Location | null;
     isViewingPrimary: boolean;
 } {
     return _cachedSnapshot;
@@ -241,6 +244,7 @@ export function validatePrimaryLocation(availableLocations?: Location[]): void {
     const favorites = loadFavorites();
 
     // If we have a valid primary that's in favorites, keep it
+    if (!_primaryLocation) return;
     const primaryId = generateLocationId(_primaryLocation);
     const foundInFavorites = favorites.some((fav) => fav.id === primaryId);
     const foundInAvailable = availableLocations?.some(
@@ -295,6 +299,6 @@ export function markPrimaryAsSet(): void {
  */
 export function __resetStoreForTesting(): void {
     _primaryLocation = getInitialPrimaryLocation();
-    _activeLocation = _primaryLocation;
+    _activeLocation = _primaryLocation || CANADIAN_CITIES[0];
     _listeners.clear();
 }

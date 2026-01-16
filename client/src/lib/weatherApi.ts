@@ -31,6 +31,7 @@ import { getVault } from './vault';
 import { getTodayDateString } from '@cdn/manifest';
 import type { Artifact, ForecastArtifact, ObservationArtifact } from '@cdn/types';
 import { computeLocationScopeId } from '@cdn/location';
+import { getCdnBaseUrl } from '@/lib/config';
 
 // Normalized Model Contract
 export type NormalizedModel = ModelForecast & {
@@ -364,11 +365,16 @@ function getLocationKey(latitude: number, longitude: number, timezone: string): 
 }
 
 function hydrateCachedForecast(model: WeatherModel, cached: CachedModelForecast): ModelForecast {
+  const hourlyCount = Array.isArray(cached.hourly) ? cached.hourly.length : 0;
+  const isUsable = hourlyCount > 0;
   const result: ModelForecast = {
     model,
     hourly: cached.hourly,
     daily: cached.daily,
     fetchedAt: new Date(cached.fetchedAt),
+    status: isUsable ? 'ok' : 'error',
+    reason: isUsable ? undefined : 'No hourly data (cache)',
+    error: isUsable ? undefined : 'No hourly data (cache)',
     snapshotTime: cached.snapshotTime,
     lastForecastFetchTime: cached.lastForecastFetchTime,
     lastSeenRunAvailabilityTime: cached.lastSeenRunAvailabilityTime ?? null,
@@ -1748,4 +1754,56 @@ export async function fetchFromVault(options?: {
     forecasts,
     observations: obsArtifacts.length > 0 ? mapObservationArtifactToObservedConditions(obsArtifacts) : null
   };
+}
+
+/**
+ * Triggers an on-demand ingestion for the specified location.
+ * This is a fire-and-forget signal to the CDN worker.
+ * 
+ * HARDENING:
+ * - Throws on 4xx/5xx to allow caller to handle/log.
+ * - Parses error body for better logging.
+ * - Enforces synchronous manifest update contract (Option A) by awaiting response.
+ */
+export async function triggerIngest(location: Location): Promise<void> {
+  const baseUrl = getCdnBaseUrl();
+  const url = `${baseUrl}/ingest`;
+
+  const body = {
+    latitude: location.latitude,
+    longitude: location.longitude,
+    timezone: location.timezone
+  };
+
+  if (import.meta.env.DEV) {
+    console.log(`[weatherApi] Triggering ingest for ${location.name} at ${url}`, body);
+  }
+
+  // 30s timeout - ingestion can take time if it needs to process manifests
+  const response = await fetchWithTimeout(url, 30000, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(body)
+  });
+
+  if (!response.ok) {
+    let errorMessage = `Ingest failed: ${response.status} ${response.statusText}`;
+    try {
+      const errorBody = await response.json();
+      if ((errorBody as any)?.message) {
+        errorMessage += ` - ${(errorBody as any).message}`;
+      } else if ((errorBody as any)?.error) {
+        errorMessage += ` - ${(errorBody as any).error}`;
+      }
+    } catch {
+      // Ignore JSON parse error, use status text
+    }
+    throw new Error(errorMessage);
+  }
+
+  if (import.meta.env.DEV) {
+    console.log(`[weatherApi] Ingest successful for ${location.name}`);
+  }
 }

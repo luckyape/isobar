@@ -12,7 +12,7 @@
  */
 
 import { useState, useEffect, useCallback, useRef, useSyncExternalStore } from 'react';
-import { fetchForecastsWithMetadata, getCachedForecasts, fetchObservedHourly, type ObservedConditions, type ModelForecast, type Location, type DataCompleteness } from '@/lib/weatherApi';
+import { fetchForecastsWithMetadata, getCachedForecasts, fetchObservedHourly, triggerIngest, type ObservedConditions, type ModelForecast, type Location, type DataCompleteness } from '@/lib/weatherApi';
 import { calculateConsensus, type ConsensusResult } from '@/lib/consensus';
 import { getSyncEngine, SyncEngine, type SyncProgress } from '@/lib/vault/sync';
 import {
@@ -212,26 +212,63 @@ export function useWeather() {
     fetchWeather(location, { userInitiated: true, refresh: false });
   }, [fetchWeather]);
 
+  const backfillControllerRef = useRef<AbortController | null>(null);
+
   // Set primary location (the "weatherman assigned" location)
-  const setPrimaryLocation = useCallback((location: Location) => {
+  const setPrimaryLocation = useCallback(async (location: Location) => {
     storeSetPrimary(location);
     // Setting primary also updates active (handled by store)
     // Fetch weather for the new primary
     fetchWeather(location, { userInitiated: true, refresh: false });
 
-    // Trigger historical backfill (fire and forget)
-    // We create a standalone engine to avoid interference with the main sync effect
-    const backfillEngine = new SyncEngine({
-      location: {
-        latitude: location.latitude,
-        longitude: location.longitude,
-        timezone: location.timezone
+    // 1. Abort any existing backfill job
+    if (backfillControllerRef.current) {
+      console.log('[useWeather] Aborting previous backfill');
+      backfillControllerRef.current.abort();
+    }
+    backfillControllerRef.current = new AbortController();
+    const signal = backfillControllerRef.current.signal;
+
+    try {
+      // 2. Trigger ingestion on the CDN (Strict Contract A: wait for manifest)
+      // This ensures data exists for the new location before we try to sync it.
+      console.log(`[useWeather] Triggering ingest for ${location.name}...`);
+      await triggerIngest(location);
+      if (signal.aborted) return;
+
+      // 3. Trigger historical backfill
+      // We create a standalone engine to avoid interference with the main sync effect
+      // but managed by our abort controller to prevent stampedes.
+      const backfillEngine = new SyncEngine({
+        location: {
+          latitude: location.latitude,
+          longitude: location.longitude,
+          timezone: location.timezone
+        }
+      });
+
+      console.log(`[useWeather] Starting 365-day backfill for ${location.name}`);
+      await backfillEngine.sync(undefined, { syncDays: 365, signal });
+      if (signal.aborted) return;
+
+      console.log(`[useWeather] Backfill complete for ${location.name}`);
+
+      // 4. Quick refresh to catch edges
+      // A small sync to ensure we have the absolute latest "today" data if ingest
+      // finished while we were backfilling history.
+      await backfillEngine.sync(undefined, { syncDays: 2, signal });
+
+    } catch (err) {
+      if (signal.aborted) {
+        console.log(`[useWeather] Backfill aborted for ${location.name}`);
+      } else {
+        console.warn(`[useWeather] Backfill sequence failed for ${location.name}:`, err);
       }
-    });
-    console.log(`[useWeather] Triggering 365-day backfill for new primary: ${location.name}`);
-    backfillEngine.sync(undefined, { syncDays: 365 }).catch(err => {
-      console.warn('[useWeather] Backfill failed:', err);
-    });
+    } finally {
+      if (backfillControllerRef.current?.signal === signal) {
+        backfillControllerRef.current = null;
+      }
+    }
   }, [fetchWeather]);
 
   // Refresh current location data
@@ -260,12 +297,14 @@ export function useWeather() {
       }
     });
 
+    const controller = new AbortController();
     let active = true;
+
     syncEngine
       .sync((progress) => {
         if (!active) return;
         setState(prev => ({ ...prev, syncProgress: progress }));
-      })
+      }, { signal: controller.signal })
       .then((syncState) => {
         if (!active) return;
         console.log(`[sync] Finished: ${syncState.blobsDownloaded} blobs, ${syncState.bytesDownloaded} bytes`);
@@ -275,12 +314,14 @@ export function useWeather() {
       })
       .catch((err) => {
         if (!active) return;
+        // Ignore abort errors
+        if (controller.signal.aborted) return;
         console.warn('[sync] Failed:', err);
       });
 
     return () => {
       active = false;
-      syncEngine.abort();
+      controller.abort();
     };
   }, [state.location?.latitude, state.location?.longitude, state.location?.timezone, state.isOffline, refresh]);
 

@@ -72,7 +72,10 @@ export default function Home() {
   // Use the canonical contract: normalizeModel returns status='ok' for valid models
   // This is the SINGLE source of truth for what counts as a usable forecast
   const okForecasts = useMemo(() => {
-    return forecasts.filter(f => f.status === 'ok');
+    // NOTE: Cached forecasts may not be normalized in older cache entries, so `status`
+    // can be missing even when hourly data exists. Treat those as usable to avoid
+    // transient empty-state flashes during location switches.
+    return forecasts.filter(f => f.status === 'ok' || (!f.status && !f.error && f.hourly.length > 0));
   }, [forecasts]);
 
   const hasInitializedModels = useRef(false);
