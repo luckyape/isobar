@@ -1,46 +1,23 @@
-
 import React from 'react';
-import { describe, it, expect, vi } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { beforeEach, describe, it, expect, vi } from 'vitest';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { GraphsPanel } from '../GraphsPanel';
 import { fetchObservationsForRange } from '@/lib/observations/observations';
 import { isBucketedAccumulation } from '@/lib/observations/vars';
 import type { ObservationData } from '@/lib/observations/observations';
+import { WEATHER_MODELS, type ModelForecast } from '@/lib/weatherApi';
 
 // Mock dependencies
 vi.mock('@/lib/observations/observations', () => ({
-    fetchObservationsForRange: vi.fn(),
-    bucketMs: (t: number) => t - (t % 3600000),
-    bucketEndMs: (t: number) => t - (t % 3600000) + 3600000,
-    isBucketCompleted: vi.fn().mockImplementation((bucketStart, duration, now) => {
-        // Simple logic: if bucketStart + duration > now, it's incomplete
-        return (bucketStart + duration * 60000) <= now;
-    })
-}));
-
-vi.mock('@/lib/observations/bucketing', () => ({
-    bucketMs: (t: number) => t - (t % 3600000),
-    bucketEndMs: (t: number) => t - (t % 3600000) + 3600000,
-    isBucketCompleted: vi.fn().mockImplementation((bucketStart, now) => {
-        return (bucketStart + 3600000) <= now;
-    })
+    fetchObservationsForRange: vi.fn()
 }));
 
 vi.mock('@/lib/observations/vars', () => ({
     isBucketedAccumulation: vi.fn().mockReturnValue(true) // Default true
 }));
 
-vi.mock('@/lib/weatherApi', () => ({
-    fetchModelForecast: vi.fn().mockResolvedValue(null),
-    normalizeWeatherCode: (c: any) => c,
-    WEATHER_MODELS: []
-}));
-
-vi.mock('../PrecipPatterns', () => ({
-    PrecipPatterns: () => null,
-    getPatternId: () => 'pattern-id',
-    getTracePatternId: () => 'trace-id',
-    getPrecipTypeFromWeatherCode: () => 'rain'
+vi.mock('@/hooks/useMediaQuery', () => ({
+    useIsMobile: () => false
 }));
 
 // Mock browser APIs
@@ -66,121 +43,136 @@ class ResizeObserver {
 window.ResizeObserver = ResizeObserver;
 
 describe('Precipitation Observed Overlay', () => {
-    const location = {
-        latitude: 40,
-        longitude: -74,
-        name: 'New York',
-        country: 'USA',
-        timezone: 'America/New_York'
-    };
-
-    // Use a fixed time for stability
-    const NOW = 1704110400000; // 2024-01-01T12:00:00Z
-
     // Helper to make observation data
-    const makeObs = (precipValues: (number | null)[], startMs: number): ObservationData => ({
+    const makeObs = (bucketMs: number, precipMm: number): ObservationData => ({
         stationId: 'st-1',
         distanceKm: 5,
         series: {
-            buckets: precipValues.map((_, i) => startMs + i * 3600000),
-            tempC: precipValues.map(() => 10),
-            precipMm: precipValues,
-            conditionCode: precipValues.map(() => null),
-            windKph: precipValues.map(() => 10),
-            windGustKph: precipValues.map(() => 15),
-            windDirDeg: precipValues.map(() => 180)
+            buckets: [bucketMs],
+            tempC: [10],
+            precipMm: [precipMm],
+            conditionCode: [63],
+            windKph: [10],
+            windGustKph: [15],
+            windDirDeg: [180]
         },
         trust: { mode: 'trusted', verifiedCount: 1, unverifiedCount: 0 }
     });
 
-    it('renders "Observed" row pinned at bottom when data exists', async () => {
-        // Setup successful strict check
-        (isBucketedAccumulation as any).mockReturnValue(true);
+    const buildForecasts = (nowHourMs: number): ModelForecast[] => {
+        const startEpochMs = nowHourMs - 24 * 3600_000;
+        const hourly = Array.from({ length: 49 }, (_, i) => {
+            const epoch = startEpochMs + i * 3600_000;
+            return {
+                time: new Date(epoch).toISOString().slice(0, 16),
+                epoch,
+                temperature: 10,
+                precipitation: 1,
+                precipitationProbability: 0,
+                windSpeed: 0,
+                windDirection: 0,
+                windGusts: 0,
+                cloudCover: 0,
+                humidity: 0,
+                pressure: 0,
+                weatherCode: 63
+            };
+        });
 
-        // 3 hours of data, all past
-        // T-3, T-2, T-1 relative to NOW. 
-        // NOTE: GraphsPanel uses Date.now() internally for "isBucketCompleted" check if we don't mock it?
-        // We mocked `isBucketCompleted` to use the passed `now`, BUT GraphsPanel passes `Date.now()`.
-        // So we should mock `Date.now()`.
-        vi.setSystemTime(NOW);
+        return [
+            {
+                model: WEATHER_MODELS[0],
+                status: 'ok',
+                hourly,
+                daily: [],
+                fetchedAt: new Date(nowHourMs)
+            }
+        ] as ModelForecast[];
+    };
 
-        const obs = makeObs([1.0, 2.5, 0.0], NOW - 3 * 3600000); // 9am, 10am, 11am. NOW is 12pm.
-        // Buckets: 9am-10am (complete), 10am-11am (complete), 11am-12pm (complete).
-        // So all should be visible.
-
-        (fetchObservationsForRange as any).mockResolvedValue(obs);
-
-        render(<GraphsPanel location={location} forecasts={[]} lastUpdated={new Date(NOW)} />);
-
-        await waitFor(() => expect(fetchObservationsForRange).toHaveBeenCalled());
-
-        // Check for "Observed" label
-        // We expect it to be in the document
-        expect(screen.getAllByText('Observed').length).toBeGreaterThan(0);
+    beforeEach(() => {
+        vi.clearAllMocks();
     });
 
-    it('does NOT render observed precip if variable is not bucketed accumulation', async () => {
-        // Setup FAIL strict check
+    async function selectPrecipTab(): Promise<void> {
+        const trigger = screen.getByLabelText('Precipitation graph');
+        fireEvent.mouseDown(trigger);
+        fireEvent.click(trigger);
+        await waitFor(() => {
+            const selected = screen.getByLabelText('Precipitation graph').getAttribute('aria-selected');
+            expect(selected).toBe('true');
+        });
+    }
+
+    it('renders observed precip pattern for completed buckets (bucketed accumulation)', async () => {
+        (isBucketedAccumulation as any).mockReturnValue(true);
+
+        const nowMs = Date.now();
+        const nowHourMs = Math.floor(nowMs / 3600_000) * 3600_000;
+        const targetBucketMs = nowHourMs - 2 * 3600_000;
+        (fetchObservationsForRange as any).mockResolvedValue(makeObs(targetBucketMs, 2.5));
+
+        render(
+            <GraphsPanel
+                location={{ latitude: 40, longitude: -74 }}
+                forecasts={buildForecasts(nowHourMs)}
+                timezone="UTC"
+                isPrimary
+            />
+        );
+        await waitFor(() => expect(fetchObservationsForRange).toHaveBeenCalled());
+        await selectPrecipTab();
+
+        const cell = screen.getByTestId(`observed-cell-${targetBucketMs}`);
+        expect(cell.innerHTML).toContain('url(#');
+    });
+
+    it('does not render observed precip when variable is not bucketed accumulation', async () => {
         (isBucketedAccumulation as any).mockReturnValue(false);
-        vi.setSystemTime(NOW);
 
-        const obs = makeObs([1.0, 2.5, 0.0], NOW - 3 * 3600000);
-        (fetchObservationsForRange as any).mockResolvedValue(obs);
+        const nowMs = Date.now();
+        const nowHourMs = Math.floor(nowMs / 3600_000) * 3600_000;
+        const targetBucketMs = nowHourMs - 2 * 3600_000;
+        (fetchObservationsForRange as any).mockResolvedValue(makeObs(targetBucketMs, 2.5));
 
-        render(<GraphsPanel location={location} forecasts={[]} lastUpdated={new Date(NOW)} />);
+        render(
+            <GraphsPanel
+                location={{ latitude: 40, longitude: -74 }}
+                forecasts={buildForecasts(nowHourMs)}
+                timezone="UTC"
+                isPrimary
+            />
+        );
 
         await waitFor(() => expect(fetchObservationsForRange).toHaveBeenCalled());
+        await selectPrecipTab();
 
-        // The logic in GraphsPanel: "if (!isBucketedAccumulation('p_mm')) return map" (empty map)
-        // If map is empty, does the row render?
-        // In `PrecipitationComparisonGraph`:
-        // const hasObserved = observedPrecipByTime && observedPrecipByTime.size > 0;
-        // So row should NOT be rendered if map is empty.
-
-        // We need to be careful: "Observed" might still appear for Conditions/Wind if they have data?
-        // But we are in "precipitation" mode (default? No, default is temperature).
-        // We need to switch to Precipitation tab? Or is GraphsPanel showing all?
-        // GraphsPanel has tabs. Default is 'temperature'.
-        // We assume we can find it?
-        // Actually, without switching tabs, we might not see it.
-        // But wait, in the first test we just checked `screen.getAllByText('Observed')`.
-        // If the component renders all tabs hidden in DOM (radix tabs sometimes do), we might find it.
-        // If not, we need to click "Precipitation".
-
-        // Let's assume we need to verify it's NOT present for Precip.
-        // If strict check fails, `observedPrecipByTime` is empty.
-        // `PrecipitationComparisonGraph` only renders observed row if `observedPrecipByTime.size > 0`.
-        // So checking that "Observed" is NOT associated with precip values is hard without visual check.
-
-        // We can check if `isBucketedAccumulation` was called with 'p_mm'.
+        const cell = screen.getByTestId(`observed-cell-${targetBucketMs}`);
+        expect(cell.innerHTML).not.toContain('url(#');
         expect(isBucketedAccumulation).toHaveBeenCalledWith('p_mm');
     });
 
-    it('treats future buckets as unavailable (null) even if data present', async () => {
+    it('does not render future buckets even if data is present', async () => {
         (isBucketedAccumulation as any).mockReturnValue(true);
-        vi.setSystemTime(NOW);
 
-        // Data for 11am (complete at 12pm) and 12pm (incomplete/future).
-        // Map will contain both if we didn't filter.
-        // But `isBucketCompleted` filter in `GraphsPanel` should remove the future one.
+        const nowMs = Date.now();
+        const nowHourMs = Math.floor(nowMs / 3600_000) * 3600_000;
+        const futureBucketMs = nowHourMs + 1 * 3600_000;
+        (fetchObservationsForRange as any).mockResolvedValue(makeObs(futureBucketMs, 2.5));
 
-        const obs = makeObs([1.0, 5.0], NOW - 3600000); // 11am, 12pm.
-        (fetchObservationsForRange as any).mockResolvedValue(obs);
+        render(
+            <GraphsPanel
+                location={{ latitude: 40, longitude: -74 }}
+                forecasts={buildForecasts(nowHourMs)}
+                timezone="UTC"
+                isPrimary
+            />
+        );
 
-        // We rely on `isBucketCompleted` mock we set up.
-        // 11am bucket ends 12pm. 12pm <= NOW (12pm). Completed? Yes.
-        // 12pm bucket ends 1pm. 1pm > NOW. Completed? No.
-
-        render(<GraphsPanel location={location} forecasts={[]} lastUpdated={new Date(NOW)} />);
         await waitFor(() => expect(fetchObservationsForRange).toHaveBeenCalled());
+        await selectPrecipTab();
 
-        // We can't easily inspect the internal map state.
-        // But `isBucketCompleted` should be called.
-        expect(fetchObservationsForRange).toHaveBeenCalled();
-
-        // We can verify that data rendering reflects this, 
-        // but verifying the "Unavailable" pattern in JSDOM is hard (CSS/SVG check).
-        // At least we verified the wiring of `isBucketCompleted` in the component code 
-        // and here we verify the component runs without error.
+        const cell = screen.getByTestId(`observed-cell-${futureBucketMs}`);
+        expect(cell.innerHTML).not.toContain('url(#');
     });
 });

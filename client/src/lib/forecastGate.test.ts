@@ -14,6 +14,7 @@ const baseForecast = (runAvailabilityTime: number): ModelForecast => ({
   hourly: [
     {
       time: '2024-01-01T00:00',
+      epoch: 1704067200000,
       temperature: 0,
       precipitation: 0,
       precipitationProbability: 0,
@@ -46,7 +47,7 @@ const baseForecast = (runAvailabilityTime: number): ModelForecast => ({
 
 const forecastPayload = {
   hourly: {
-    time: ['2024-01-01T00:00'],
+    time: [1704067200],
     temperature_2m: [0],
     precipitation: [0],
     precipitation_probability: [0],
@@ -59,7 +60,7 @@ const forecastPayload = {
     weather_code: [0]
   },
   daily: {
-    time: ['2024-01-01'],
+    time: [1704067200],
     temperature_2m_max: [0],
     temperature_2m_min: [0],
     precipitation_sum: [0],
@@ -67,8 +68,8 @@ const forecastPayload = {
     wind_speed_10m_max: [0],
     wind_gusts_10m_max: [0],
     weather_code: [0],
-    sunrise: ['2024-01-01T07:00'],
-    sunset: ['2024-01-01T17:00']
+    sunrise: [1704092400],
+    sunset: [1704128400]
   }
 };
 

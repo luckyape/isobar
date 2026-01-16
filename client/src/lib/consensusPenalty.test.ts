@@ -7,9 +7,11 @@ const buildForecast = (
   runAvailabilityTime: number
 ): ModelForecast => ({
   model: WEATHER_MODELS.find((model) => model.id === modelId) ?? WEATHER_MODELS[0],
+  status: 'ok',
   hourly: [
     {
       time: '2024-01-01T00:00',
+      epoch: 1704067200000,
       temperature: 10,
       precipitation: 0,
       precipitationProbability: 0,
