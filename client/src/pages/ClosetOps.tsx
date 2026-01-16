@@ -289,7 +289,7 @@ export default function ClosetOps() {
                             <CardContent>
                                 <div className="text-2xl font-bold flex items-center gap-2">
                                     {reconcileReport ? (
-                                        (reconcileReport.missingFound + reconcileReport.sizeMismatches + reconcileReport.orphansFound) === 0 ?
+                                        (reconcileReport.missingFound + reconcileReport.sizeMismatches + reconcileReport.softOrphansFound) === 0 ?
                                             <><CheckCircle className="text-green-500 w-6 h-6" /> Healthy</> :
                                             <><AlertTriangle className="text-yellow-500 w-6 h-6" /> Issues</>
                                     ) : 'Unknown'}
@@ -407,7 +407,7 @@ export default function ClosetOps() {
                                                 </div>
                                                 <div>
                                                     <Label>Orphans (Meta says deleted, Disk present)</Label>
-                                                    <div className="text-xl">{reconcileReport.orphansFound}</div>
+                                                    <div className="text-xl">{reconcileReport.softOrphansFound}</div>
                                                 </div>
                                                 <div>
                                                     <Label>Size Mismatches</Label>
@@ -415,7 +415,7 @@ export default function ClosetOps() {
                                                 </div>
                                             </div>
 
-                                            {(reconcileReport.missingFound > 0 || reconcileReport.orphansFound > 0 || reconcileReport.sizeMismatches > 0) && (
+                                            {(reconcileReport.missingFound > 0 || reconcileReport.softOrphansFound > 0 || reconcileReport.sizeMismatches > 0) && (
                                                 <div className="mt-4 p-4 border border-destructive rounded bg-destructive/5 space-y-4">
                                                     <h3 className="font-bold text-destructive">Repairs Needed</h3>
                                                     <p className="text-sm">

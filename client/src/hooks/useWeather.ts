@@ -69,7 +69,7 @@ export function useWeather() {
   // Fetch weather data for a location
   const fetchWeather = useCallback(async (
     location: Location,
-    options: { force?: boolean; userInitiated?: boolean; refresh?: boolean } = {}
+    options: { force?: boolean; bypassAllCaches?: boolean; userInitiated?: boolean; refresh?: boolean } = {}
   ) => {
     const requestId = ++requestIdRef.current;
     const isOffline = typeof navigator !== 'undefined' ? !navigator.onLine : false;
@@ -112,6 +112,7 @@ export function useWeather() {
         location.timezone,
         {
           force: options.force,
+          bypassAllCaches: options.bypassAllCaches,
           userInitiated: options.userInitiated,
           offline: isOffline
         }
@@ -193,7 +194,7 @@ export function useWeather() {
   }, [fetchWeather]);
 
   // Refresh current location data
-  const refresh = useCallback((options?: { force?: boolean; userInitiated?: boolean }) => {
+  const refresh = useCallback((options?: { force?: boolean; bypassAllCaches?: boolean; userInitiated?: boolean }) => {
     if (state.location && !state.isOffline) {
       fetchWeather(state.location, { userInitiated: true, refresh: true, ...options });
     }
@@ -204,21 +205,44 @@ export function useWeather() {
     const savedLocation = getSavedLocation();
     const initialLocation = savedLocation || CANADIAN_CITIES[0]; // Default to Toronto
     fetchWeather(initialLocation);
-
-    // Initial background sync from CDN
-    const syncEngine = getSyncEngine();
-    syncEngine.sync((progress) => {
-      setState(prev => ({ ...prev, syncProgress: progress }));
-    }).then((state) => {
-      console.log(`[sync] Finished: ${state.blobsDownloaded} blobs, ${state.bytesDownloaded} bytes`);
-      // If we downloaded new data, we might want to refresh the UI
-      if (state.blobsDownloaded > 0) {
-        // refresh(); // Optional: trigger a refresh if new data arrived
-      }
-    }).catch((err) => {
-      console.warn('[sync] Failed:', err);
-    });
   }, [fetchWeather]);
+
+  // Location-scoped background sync from CDN
+  useEffect(() => {
+    if (!state.location) return;
+    if (state.isOffline) return;
+
+    const syncEngine = getSyncEngine({
+      location: {
+        latitude: state.location.latitude,
+        longitude: state.location.longitude,
+        timezone: state.location.timezone
+      }
+    });
+
+    let active = true;
+    syncEngine
+      .sync((progress) => {
+        if (!active) return;
+        setState(prev => ({ ...prev, syncProgress: progress }));
+      })
+      .then((syncState) => {
+        if (!active) return;
+        console.log(`[sync] Finished: ${syncState.blobsDownloaded} blobs, ${syncState.bytesDownloaded} bytes`);
+        if (syncState.blobsDownloaded > 0) {
+          refresh({ force: false, bypassAllCaches: false, userInitiated: false });
+        }
+      })
+      .catch((err) => {
+        if (!active) return;
+        console.warn('[sync] Failed:', err);
+      });
+
+    return () => {
+      active = false;
+      syncEngine.abort();
+    };
+  }, [state.location?.latitude, state.location?.longitude, state.location?.timezone, state.isOffline, refresh]);
 
   useEffect(() => {
     const handleOnline = () => {

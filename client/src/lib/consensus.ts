@@ -52,6 +52,7 @@ export interface ConsensusMetrics {
 
 export interface HourlyConsensus {
   time: string;
+  epoch?: number;
   temperature: {
     mean: number;
     min: number;
@@ -260,15 +261,16 @@ function calculateHourlyConsensus(
   forecasts: ModelForecast[],
   timeIndex: number
 ): HourlyConsensus | null {
-  const validForecasts = forecasts.filter(f => 
-    !f.error && f.hourly[timeIndex]
+  const validForecasts = forecasts.filter(f =>
+    f.status === 'ok' && f.hourly[timeIndex]
   );
-  
+
   if (validForecasts.length === 0) return null;
-  
+
   const hourlyData = validForecasts.map(f => f.hourly[timeIndex]);
   const time = hourlyData[0].time;
-  
+  const epoch = hourlyData[0].epoch;
+
   // Temperature consensus
   const temps = hourlyData.map(h => h.temperature);
   const tempStats = computeStats(temps);
@@ -276,7 +278,7 @@ function calculateHourlyConsensus(
   const tempAgreement = tempAvailable
     ? calculateAgreement(tempStats.stdDev, HOURLY_EXPECTED_SPREAD.temperatureC)
     : 0;
-  
+
   // Precipitation consensus
   const precips = hourlyData.map(h => h.precipitation);
   const precipStats = computeStats(precips);
@@ -284,33 +286,33 @@ function calculateHourlyConsensus(
   const precipAmountAgreement = precipAmountAvailable
     ? calculateAgreement(precipStats.stdDev, HOURLY_EXPECTED_SPREAD.precipitationMmPerHour)
     : 0;
-  
+
   // Precipitation probability
   const precipProbs = hourlyData.map(h => h.precipitationProbability);
   const precipProbStats = computeStats(precipProbs);
   const precipProbAvailable = precipProbStats.count >= 2;
   const precipProbAgreement = precipProbAvailable
     ? calculateAgreement(
-        precipProbStats.stdDev,
-        HOURLY_EXPECTED_SPREAD.precipitationProbabilityPct
-      )
+      precipProbStats.stdDev,
+      HOURLY_EXPECTED_SPREAD.precipitationProbabilityPct
+    )
     : 0;
   const precipCombinedAvailable = precipAmountAvailable || precipProbAvailable;
   const precipCombinedAgreement = precipCombinedAvailable
     ? weightedAverage([
-        {
-          value: precipAmountAgreement,
-          weight: PRECIPITATION_COMPONENT_WEIGHTS.amount,
-          available: precipAmountAvailable
-        },
-        {
-          value: precipProbAgreement,
-          weight: PRECIPITATION_COMPONENT_WEIGHTS.probability,
-          available: precipProbAvailable
-        }
-      ])
+      {
+        value: precipAmountAgreement,
+        weight: PRECIPITATION_COMPONENT_WEIGHTS.amount,
+        available: precipAmountAvailable
+      },
+      {
+        value: precipProbAgreement,
+        weight: PRECIPITATION_COMPONENT_WEIGHTS.probability,
+        available: precipProbAvailable
+      }
+    ])
     : 0;
-  
+
   // Wind speed consensus
   const winds = hourlyData.map(h => h.windSpeed);
   const windStats = computeStats(winds);
@@ -318,7 +320,7 @@ function calculateHourlyConsensus(
   const windAgreement = windAvailable
     ? calculateAgreement(windStats.stdDev, HOURLY_EXPECTED_SPREAD.windSpeedKmh)
     : 0;
-  
+
   // Wind direction consensus (circular)
   const windDirs = hourlyData.map(h => h.windDirection);
   const windDirValues = filterFiniteNumbers(windDirs);
@@ -328,7 +330,7 @@ function calculateHourlyConsensus(
   const windDirAgreement = windDirAvailable
     ? calculateAgreement(windDirStdDev, HOURLY_EXPECTED_SPREAD.windDirectionDeg)
     : 0;
-  
+
   // Cloud cover consensus
   const clouds = hourlyData.map(h => h.cloudCover);
   const cloudStats = computeStats(clouds);
@@ -336,11 +338,11 @@ function calculateHourlyConsensus(
   const cloudAgreement = cloudAvailable
     ? calculateAgreement(cloudStats.stdDev, HOURLY_EXPECTED_SPREAD.cloudCoverPct)
     : 0;
-  
+
   // Weather code consensus
   const codes = hourlyData.map(h => h.weatherCode);
   const { code: dominantCode, agreement: codeAgreement, available: codeAvailable } = dominantWeatherCode(codes);
-  
+
   // Overall hourly agreement (weighted average)
   const overallAgreement = weightedAverage([
     { value: tempAgreement, weight: HOURLY_OVERALL_WEIGHTS.temperature, available: tempAvailable },
@@ -349,9 +351,10 @@ function calculateHourlyConsensus(
     { value: codeAgreement, weight: HOURLY_OVERALL_WEIGHTS.weatherCode, available: codeAvailable },
     { value: cloudAgreement, weight: HOURLY_OVERALL_WEIGHTS.cloudCover, available: cloudAvailable }
   ]);
-  
+
   return {
     time,
+    epoch,
     temperature: {
       mean: roundTo(tempStats.mean, 1),
       min: roundTo(tempStats.min, 1),
@@ -415,15 +418,15 @@ function calculateDailyConsensus(
   forecasts: ModelForecast[],
   dayIndex: number
 ): DailyConsensus | null {
-  const validForecasts = forecasts.filter(f => 
-    !f.error && f.daily[dayIndex]
+  const validForecasts = forecasts.filter(f =>
+    f.status === 'ok' && f.daily[dayIndex]
   );
-  
+
   if (validForecasts.length === 0) return null;
-  
+
   const dailyData = validForecasts.map(f => f.daily[dayIndex]);
   const date = dailyData[0].date;
-  
+
   // Temperature max consensus
   const maxTemps = dailyData.map(d => d.temperatureMax);
   const maxTempStats = computeStats(maxTemps);
@@ -431,7 +434,7 @@ function calculateDailyConsensus(
   const maxTempAgreement = maxTempAvailable
     ? calculateAgreement(maxTempStats.stdDev, DAILY_EXPECTED_SPREAD.temperatureMaxC)
     : 0;
-  
+
   // Temperature min consensus
   const minTemps = dailyData.map(d => d.temperatureMin);
   const minTempStats = computeStats(minTemps);
@@ -439,7 +442,7 @@ function calculateDailyConsensus(
   const minTempAgreement = minTempAvailable
     ? calculateAgreement(minTempStats.stdDev, DAILY_EXPECTED_SPREAD.temperatureMinC)
     : 0;
-  
+
   // Precipitation consensus
   const precips = dailyData.map(d => d.precipitationSum);
   const precipStats = computeStats(precips);
@@ -454,27 +457,27 @@ function calculateDailyConsensus(
   const precipProbAvailable = precipProbStats.count >= 2;
   const precipProbAgreement = precipProbAvailable
     ? calculateAgreement(
-        precipProbStats.stdDev,
-        DAILY_EXPECTED_SPREAD.precipitationProbabilityMaxPct
-      )
+      precipProbStats.stdDev,
+      DAILY_EXPECTED_SPREAD.precipitationProbabilityMaxPct
+    )
     : 0;
 
   const precipCombinedAvailable = precipAmountAvailable || precipProbAvailable;
   const precipCombinedAgreement = precipCombinedAvailable
     ? weightedAverage([
-        {
-          value: precipAmountAgreement,
-          weight: PRECIPITATION_COMPONENT_WEIGHTS.amount,
-          available: precipAmountAvailable
-        },
-        {
-          value: precipProbAgreement,
-          weight: PRECIPITATION_COMPONENT_WEIGHTS.probability,
-          available: precipProbAvailable
-        }
-      ])
+      {
+        value: precipAmountAgreement,
+        weight: PRECIPITATION_COMPONENT_WEIGHTS.amount,
+        available: precipAmountAvailable
+      },
+      {
+        value: precipProbAgreement,
+        weight: PRECIPITATION_COMPONENT_WEIGHTS.probability,
+        available: precipProbAvailable
+      }
+    ])
     : 0;
-  
+
   // Wind speed consensus
   const winds = dailyData.map(d => d.windSpeedMax);
   const windStats = computeStats(winds);
@@ -482,11 +485,11 @@ function calculateDailyConsensus(
   const windAgreement = windAvailable
     ? calculateAgreement(windStats.stdDev, DAILY_EXPECTED_SPREAD.windSpeedMaxKmh)
     : 0;
-  
+
   // Weather code consensus
   const codes = dailyData.map(d => d.weatherCode);
   const { code: dominantCode, agreement: codeAgreement, available: codeAvailable } = dominantWeatherCode(codes);
-  
+
   // Overall daily agreement
   const overallAgreement = weightedAverage([
     { value: maxTempAgreement, weight: DAILY_OVERALL_WEIGHTS.temperatureMax, available: maxTempAvailable },
@@ -495,7 +498,7 @@ function calculateDailyConsensus(
     { value: windAgreement, weight: DAILY_OVERALL_WEIGHTS.windSpeed, available: windAvailable },
     { value: codeAgreement, weight: DAILY_OVERALL_WEIGHTS.weatherCode, available: codeAvailable }
   ]);
-  
+
   return {
     date,
     temperatureMax: {
@@ -552,9 +555,9 @@ function calculateDailyConsensus(
 
 // Main consensus calculation function
 export function calculateConsensus(forecasts: ModelForecast[]): ConsensusResult {
-  const successfulForecasts = forecasts.filter(f => !f.error);
+  const successfulForecasts = forecasts.filter(f => f.status === 'ok');
   const successfulModels = successfulForecasts.map(f => f.model.name);
-  const failedModels = forecasts.filter(f => f.error).map(f => f.model.name);
+  const failedModels = forecasts.filter(f => f.status === 'error').map(f => f.model.name);
   const freshness = calculateFreshness(forecasts, {
     nowSeconds: Date.now() / 1000,
     staleThresholdHours: FRESHNESS_STALE_THRESHOLD_HOURS,
@@ -574,25 +577,25 @@ export function calculateConsensus(forecasts: ModelForecast[]): ConsensusResult 
       freshness
     };
   }
-  
+
   // Calculate hourly consensus
   const maxHours = Math.max(...successfulForecasts.map(f => f.hourly.length));
   const hourlyConsensus: HourlyConsensus[] = [];
-  
+
   for (let i = 0; i < maxHours; i++) {
     const consensus = calculateHourlyConsensus(forecasts, i);
     if (consensus) hourlyConsensus.push(consensus);
   }
-  
+
   // Calculate daily consensus
   const maxDays = Math.max(...successfulForecasts.map(f => f.daily.length));
   const dailyConsensus: DailyConsensus[] = [];
-  
+
   for (let i = 0; i < maxDays; i++) {
     const consensus = calculateDailyConsensus(forecasts, i);
     if (consensus) dailyConsensus.push(consensus);
   }
-  
+
   // Calculate overall metrics
   const tempAgreements = dailyConsensus
     .filter(d => d.temperatureMax.available && d.temperatureMin.available)
@@ -621,11 +624,11 @@ export function calculateConsensus(forecasts: ModelForecast[]): ConsensusResult 
 
   const overallAgreement = overallWeight > 0
     ? weightedAverage([
-        { value: avgTempAgreement, weight: FORECAST_OVERALL_WEIGHTS.temperature, available: tempAgreements.length > 0 },
-        { value: avgPrecipAgreement, weight: FORECAST_OVERALL_WEIGHTS.precipitation, available: precipAgreements.length > 0 },
-        { value: avgWindAgreement, weight: FORECAST_OVERALL_WEIGHTS.wind, available: windAgreements.length > 0 },
-        { value: avgConditionsAgreement, weight: FORECAST_OVERALL_WEIGHTS.conditions, available: conditionAgreements.length > 0 }
-      ])
+      { value: avgTempAgreement, weight: FORECAST_OVERALL_WEIGHTS.temperature, available: tempAgreements.length > 0 },
+      { value: avgPrecipAgreement, weight: FORECAST_OVERALL_WEIGHTS.precipitation, available: precipAgreements.length > 0 },
+      { value: avgWindAgreement, weight: FORECAST_OVERALL_WEIGHTS.wind, available: windAgreements.length > 0 },
+      { value: avgConditionsAgreement, weight: FORECAST_OVERALL_WEIGHTS.conditions, available: conditionAgreements.length > 0 }
+    ])
     : 0;
 
   const seriesAvailable = hourlyConsensus.length > 0 && dailyConsensus.length > 0;

@@ -30,6 +30,82 @@ import { WEATHER_MODELS } from './weatherModels';
 import { getVault } from './vault';
 import { getTodayDateString } from '@cdn/manifest';
 import type { Artifact, ForecastArtifact, ObservationArtifact } from '@cdn/types';
+import { computeLocationScopeId } from '@cdn/location';
+
+// Normalized Model Contract
+export type NormalizedModel = ModelForecast & {
+  status: 'ok' | 'error';
+  reason?: string;
+};
+
+/**
+ * Diagnostic info tracked per model during fetch.
+ * Used by DEV-only diagnostics panel.
+ */
+export interface ModelDiagnostic {
+  modelId: string;
+  modelName: string;
+  decision: 'fetch' | 'skip' | 'pending' | 'cache-hit';
+  requestUrl: string | null;
+  httpStatus: number | null;
+  httpError: string | null;
+  hourlyLength: number;
+  dailyLength: number;
+  filterReason: string | null;
+  timestamp: number;
+}
+
+// Global diagnostic store for DEV mode
+let lastFetchDiagnostics: ModelDiagnostic[] = [];
+
+export function getLastFetchDiagnostics(): ModelDiagnostic[] {
+  return lastFetchDiagnostics;
+}
+
+export function clearFetchDiagnostics(): void {
+  lastFetchDiagnostics = [];
+}
+
+export function normalizeModel(raw: ModelForecast): NormalizedModel {
+  // Guard against missing/empty hourly
+  if (!raw.hourly || raw.hourly.length === 0) {
+    if (import.meta.env.DEV) {
+      console.warn(`[weatherApi] ${raw.model.name} rejected: No hourly data. Error: ${raw.error || 'none'}`);
+    }
+    return {
+      ...raw,
+      status: 'error',
+      reason: raw.error || 'No hourly data',
+      hourly: [], // Always empty array, never undefined
+      daily: [],
+      error: raw.error || 'No hourly data'
+    };
+  }
+
+  // Guard against errors that were already caught but might have partial data
+  if (raw.error) {
+    if (import.meta.env.DEV) {
+      console.warn(`[weatherApi] ${raw.model.name} rejected: Error present: ${raw.error}`);
+    }
+    return {
+      ...raw,
+      status: 'error',
+      reason: raw.error,
+      hourly: [],
+      daily: []
+    };
+  }
+
+  if (import.meta.env.DEV) {
+    console.log(`[weatherApi] ${raw.model.name} normalized as OK (${raw.hourly.length} hourly points)`);
+  }
+
+  return {
+    ...raw,
+    status: 'ok',
+    reason: undefined
+  };
+}
 
 
 const DEFAULT_UPDATE_INTERVAL_SECONDS = 600;
@@ -40,7 +116,7 @@ const DEFAULT_CONSISTENCY_DELAY_MINUTES = 10;
 const DEFAULT_MAX_CACHED_LOCATIONS = 6;
 const DEFAULT_PENDING_JITTER_SECONDS = 60;
 const METADATA_STORAGE_KEY = 'weather-consensus-model-metadata-v1';
-const FORECAST_CACHE_KEY = 'weather-consensus-forecast-cache-v1';
+const FORECAST_CACHE_KEY = 'weather-consensus-forecast-cache-v2';
 const DEBUG_GATING = import.meta.env.VITE_DEBUG_GATING === 'true';
 
 function getNumericEnv(value: unknown, fallback: number): number {
@@ -120,6 +196,7 @@ type PendingModelUpdate = {
 
 type ForecastFetchOptions = {
   force?: boolean;
+  bypassAllCaches?: boolean; // True forced fetch: bypasses vault, localStorage, and TTL
   userInitiated?: boolean;
   offline?: boolean;
   consistencyDelayMinutes?: number;
@@ -287,7 +364,7 @@ function getLocationKey(latitude: number, longitude: number, timezone: string): 
 }
 
 function hydrateCachedForecast(model: WeatherModel, cached: CachedModelForecast): ModelForecast {
-  return {
+  const result: ModelForecast = {
     model,
     hourly: cached.hourly,
     daily: cached.daily,
@@ -303,6 +380,7 @@ function hydrateCachedForecast(model: WeatherModel, cached: CachedModelForecast)
     updateIntervalSeconds: cached.updateIntervalSeconds,
     metadataFetchedAt: cached.metadataFetchedAt
   };
+  return result;
 }
 
 function recordForecastCache(
@@ -586,7 +664,7 @@ export async function fetchObservedHourly(
   timezone: string = 'America/Toronto'
 ): Promise<ObservedConditions | null> {
   // 1. Check Vault first
-  const { observations: vaultObs } = await fetchFromVault();
+  const { observations: vaultObs } = await fetchFromVault({ latitude, longitude, timezone });
   if (vaultObs && vaultObs.hourly.length > 0) {
     return vaultObs;
   }
@@ -684,6 +762,12 @@ import {
   WEATHER_CODE_NORMALIZATION
 } from './weatherNormalization';
 
+// Track diagnostic info during fetch
+const pendingDiagnostics: Map<string, Omit<ModelDiagnostic, 'filterReason'>> = new Map();
+
+function recordDiagnostic(modelId: string, diagnostic: Omit<ModelDiagnostic, 'filterReason'>) {
+  pendingDiagnostics.set(modelId, diagnostic);
+}
 
 // Fetch forecast from a single model
 async function fetchModelForecast(
@@ -720,13 +804,24 @@ async function fetchModelForecast(
       'weather_code',
       'sunrise',
       'sunset'
-    ].join(',')
+    ].join(','),
+    timeformat: 'unixtime'
   });
 
+  const requestUrl = `${model.endpoint}?${params}`;
+
+  if (import.meta.env.DEV) {
+    console.log(`[weatherApi] Fetching ${model.name} (${model.id})`);
+    console.log(`[weatherApi]   URL: ${requestUrl}`);
+  }
+
   try {
-    const response = await fetch(`${model.endpoint}?${params}`);
+    const response = await fetch(requestUrl);
 
     if (!response.ok) {
+      if (import.meta.env.DEV) {
+        console.error(`[weatherApi] ${model.name} HTTP ${response.status}: ${response.statusText}`);
+      }
       throw new Error(`HTTP ${response.status}: ${response.statusText}`);
     }
 
@@ -734,38 +829,118 @@ async function fetchModelForecast(
     const etag = response.headers?.get?.('etag') ?? undefined;
     const data = await response.json();
 
-    // Parse hourly data
-    const hourTimes = (data as any).hourly?.time || [];
-    const hourly: HourlyForecast[] = hourTimes.map((time: string, i: number) => ({
-      time: time,
-      temperature: (data as any).hourly.temperature_2m[i],
-      precipitation: (data as any).hourly.precipitation[i] ?? 0,
-      precipitationProbability: (data as any).hourly.precipitation_probability?.[i] ?? 0,
-      windSpeed: (data as any).hourly.wind_speed_10m[i],
-      windDirection: (data as any).hourly.wind_direction_10m[i],
-      windGusts: (data as any).hourly.wind_gusts_10m[i],
-      cloudCover: (data as any).hourly.cloud_cover[i],
-      humidity: (data as any).hourly.relative_humidity_2m[i],
-      pressure: (data as any).hourly.pressure_msl[i],
-      weatherCode: normalizeWeatherCode((data as any).hourly.weather_code[i])
-    }));
+    // Safe accessor for nested arrays
+    const safeGet = <T>(obj: any, path: string, index: number, fallback: T): T => {
+      try {
+        const arr = path.split('.').reduce((o, k) => o?.[k], obj);
+        return arr?.[index] ?? fallback;
+      } catch {
+        return fallback;
+      }
+    };
 
-    // Parse daily data
-    const dayTimes = (data as any).daily?.time || [];
-    const daily: DailyForecast[] = dayTimes.map((date: string, i: number) => ({
-      date: date,
-      temperatureMax: (data as any).daily.temperature_2m_max[i],
-      temperatureMin: (data as any).daily.temperature_2m_min[i],
-      precipitationSum: (data as any).daily.precipitation_sum[i] ?? 0,
-      precipitationProbabilityMax: (data as any).daily.precipitation_probability_max?.[i] ?? 0,
-      windSpeedMax: (data as any).daily.wind_speed_10m_max[i],
-      windGustsMax: (data as any).daily.wind_gusts_10m_max[i],
-      weatherCode: normalizeWeatherCode((data as any).daily.weather_code[i]),
-      sunrise: (data as any).daily.sunrise[i],
-      sunset: (data as any).daily.sunset[i]
-    }));
+    // Parse hourly data with full null guards
+    // When using timeformat=unixtime, times are in seconds
+    const hourlyData = (data as any)?.hourly;
+    const hourTimes: number[] = Array.isArray(hourlyData?.time) ? hourlyData.time : [];
 
-    return {
+    if (import.meta.env.DEV) {
+      console.log(`[weatherApi] ${model.name} response received`);
+      console.log(`[weatherApi]   Status: ${response.status}`);
+      console.log(`[weatherApi]   Hourly points: ${hourTimes.length}`);
+      console.log(`[weatherApi]   Daily points: ${((data as any)?.daily?.time || []).length}`);
+    }
+
+    // Validate we have required hourly data
+    if (hourTimes.length === 0) {
+      const errorMsg = 'API response missing hourly.time array';
+      if (import.meta.env.DEV) {
+        console.warn(`[weatherApi] ${model.name}: ${errorMsg}`);
+      }
+      recordDiagnostic(model.id, {
+        modelId: model.id,
+        modelName: model.name,
+        decision: 'fetch',
+        requestUrl,
+        httpStatus: response.status,
+        httpError: errorMsg,
+        hourlyLength: 0,
+        dailyLength: 0,
+        timestamp: Date.now()
+      });
+      return {
+        model,
+        hourly: [],
+        daily: [],
+        fetchedAt,
+        snapshotTime: fetchedAt.getTime(),
+        lastForecastFetchTime: fetchedAt.getTime(),
+        lastSeenRunAvailabilityTime: metadata?.runAvailabilityTime ?? null,
+        runInitialisationTime: metadata?.runInitialisationTime,
+        runAvailabilityTime: metadata?.runAvailabilityTime,
+        updateIntervalSeconds: metadata?.updateIntervalSeconds,
+        metadataFetchedAt: metadata?.metadataFetchedAt,
+        error: errorMsg
+      };
+    }
+
+    const hourly: HourlyForecast[] = hourTimes.map((timeSeconds: number, i: number) => {
+      const epochMs = timeSeconds * 1000;
+      const date = new Date(epochMs);
+      const parts = getZonedDateParts(date, timezone);
+      const timeLine = parts ? formatDateTimeKey(parts) : null;
+      // Fallback if formatting fails (should not happen with valid epoch)
+      const timeStr = timeLine ?? new Date(epochMs).toISOString().slice(0, 16);
+
+      return {
+        time: timeStr,
+        epoch: epochMs,
+        temperature: safeGet<number>(data, 'hourly.temperature_2m', i, 0),
+        precipitation: safeGet<number>(data, 'hourly.precipitation', i, 0),
+        precipitationProbability: safeGet<number>(data, 'hourly.precipitation_probability', i, 0),
+        windSpeed: safeGet<number>(data, 'hourly.wind_speed_10m', i, 0),
+        windDirection: safeGet<number>(data, 'hourly.wind_direction_10m', i, 0),
+        windGusts: safeGet<number>(data, 'hourly.wind_gusts_10m', i, 0),
+        cloudCover: safeGet<number>(data, 'hourly.cloud_cover', i, 0),
+        humidity: safeGet<number>(data, 'hourly.relative_humidity_2m', i, 0),
+        pressure: safeGet<number>(data, 'hourly.pressure_msl', i, 0),
+        weatherCode: normalizeWeatherCode(safeGet<number>(data, 'hourly.weather_code', i, 0))
+      };
+    });
+
+    // Parse daily data with full null guards
+    const dailyData = (data as any)?.daily;
+    const dayTimes: number[] = Array.isArray(dailyData?.time) ? dailyData.time : [];
+    const daily: DailyForecast[] = dayTimes.map((timeSeconds: number, i: number) => {
+      const epochMs = timeSeconds * 1000;
+      const date = new Date(epochMs);
+      const parts = getZonedDateParts(date, timezone);
+      const dateStr = parts ? formatDateKey(parts) : new Date(epochMs).toISOString().slice(0, 10);
+
+      // Safe sunrise/sunset handling
+      const sunriseSeconds = safeGet<number | null>(data, 'daily.sunrise', i, null);
+      const sunsetSeconds = safeGet<number | null>(data, 'daily.sunset', i, null);
+
+      return {
+        date: dateStr,
+        temperatureMax: safeGet<number>(data, 'daily.temperature_2m_max', i, 0),
+        temperatureMin: safeGet<number>(data, 'daily.temperature_2m_min', i, 0),
+        precipitationSum: safeGet<number>(data, 'daily.precipitation_sum', i, 0),
+        precipitationProbabilityMax: safeGet<number>(data, 'daily.precipitation_probability_max', i, 0),
+        windSpeedMax: safeGet<number>(data, 'daily.wind_speed_10m_max', i, 0),
+        windGustsMax: safeGet<number>(data, 'daily.wind_gusts_10m_max', i, 0),
+        weatherCode: normalizeWeatherCode(safeGet<number>(data, 'daily.weather_code', i, 0)),
+        // Sunrise/Sunset come as unixtime seconds - provide ISO fallback if missing
+        sunrise: sunriseSeconds != null
+          ? new Date(sunriseSeconds * 1000).toISOString()
+          : new Date(epochMs + 6 * 3600 * 1000).toISOString(), // fallback: 6am local
+        sunset: sunsetSeconds != null
+          ? new Date(sunsetSeconds * 1000).toISOString()
+          : new Date(epochMs + 18 * 3600 * 1000).toISOString() // fallback: 6pm local
+      };
+    });
+
+    const forecast: ModelForecast = {
       model,
       hourly,
       daily,
@@ -779,8 +954,43 @@ async function fetchModelForecast(
       updateIntervalSeconds: metadata?.updateIntervalSeconds,
       metadataFetchedAt: metadata?.metadataFetchedAt
     };
+
+    // Record diagnostic for DEV panel
+    recordDiagnostic(model.id, {
+      modelId: model.id,
+      modelName: model.name,
+      decision: 'fetch',
+      requestUrl,
+      httpStatus: response.status,
+      httpError: null,
+      hourlyLength: hourly.length,
+      dailyLength: daily.length,
+      timestamp: Date.now()
+    });
+
+    return forecast;
   } catch (error) {
+    if (import.meta.env.DEV) {
+      console.error(`[weatherApi] ${model.name} fetch failed:`, error instanceof Error ? error.message : error);
+    }
+
     const fetchedAt = new Date();
+    const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+    const httpStatusMatch = errorMsg.match(/HTTP (\d+)/)?.[1];
+
+    // Record diagnostic for DEV panel
+    recordDiagnostic(model.id, {
+      modelId: model.id,
+      modelName: model.name,
+      decision: 'fetch',
+      requestUrl,
+      httpStatus: httpStatusMatch ? parseInt(httpStatusMatch, 10) : null,
+      httpError: errorMsg,
+      hourlyLength: 0,
+      dailyLength: 0,
+      timestamp: Date.now()
+    });
+
     return {
       model,
       hourly: [],
@@ -793,7 +1003,7 @@ async function fetchModelForecast(
       runAvailabilityTime: metadata?.runAvailabilityTime,
       updateIntervalSeconds: metadata?.updateIntervalSeconds,
       metadataFetchedAt: metadata?.metadataFetchedAt,
-      error: error instanceof Error ? error.message : 'Unknown error'
+      error: errorMsg
     };
   }
 }
@@ -973,15 +1183,29 @@ export async function fetchForecastsWithMetadata(
   const minIntervalSeconds = options.minMetadataIntervalSeconds ?? CONFIG_MIN_METADATA_INTERVAL_SECONDS;
   const maxCachedLocations = options.maxCachedLocations ?? CONFIG_MAX_CACHED_LOCATIONS;
   const force = options.force ?? false;
+  const bypassAllCaches = options.bypassAllCaches ?? false;
   const userInitiated = options.userInitiated ?? false;
   const locationKey = getLocationKey(latitude, longitude, timezone);
-  const mode: RefreshSummary['mode'] = force ? 'force' : userInitiated ? 'manual' : 'auto';
+  const mode: RefreshSummary['mode'] = (force || bypassAllCaches) ? 'force' : userInitiated ? 'manual' : 'auto';
 
-  // 1. Fetch from Vault (CDN Data)
-  const { forecasts: vaultForecasts, observations: vaultObservations } = await fetchFromVault();
+  // Clear diagnostics at start of fetch
+  pendingDiagnostics.clear();
 
+  // 1. Fetch from Vault (CDN Data) - SKIP if bypassAllCaches
+  let vaultForecasts: ModelForecast[] = [];
+  if (!bypassAllCaches) {
+    const vaultResult = await fetchFromVault({ latitude, longitude, timezone });
+    vaultForecasts = vaultResult.forecasts;
+  } else if (import.meta.env.DEV) {
+    console.log('[weatherApi] Bypassing vault (bypassAllCaches=true)');
+  }
+
+  // 2. Build cache map - EMPTY if bypassAllCaches
   const cachedForecasts = new Map(
     WEATHER_MODELS.map((model) => {
+      if (bypassAllCaches) {
+        return [model.id, null];
+      }
       const cached = getCachedForecastForModel(locationKey, model.id);
       const vault = vaultForecasts.find(f => f.model.id === model.id);
 
@@ -992,7 +1216,7 @@ export async function fetchForecastsWithMetadata(
       return [model.id, cached];
     })
   );
-  const usedCache = Array.from(cachedForecasts.values()).some((forecast) => Boolean(forecast?.hourly?.length));
+  const usedCache = !bypassAllCaches && Array.from(cachedForecasts.values()).some((forecast) => Boolean(forecast?.hourly?.length));
   const isOffline = options.offline ?? (typeof navigator !== 'undefined' && navigator.onLine === false);
 
   if (isOffline) {
@@ -1059,15 +1283,29 @@ export async function fetchForecastsWithMetadata(
         anyNewRunAvailable = true;
       }
     }
-    const decision = decideForecastFetch({
-      metadata,
-      cachedForecast: cached,
-      force,
-      userInitiated,
-      nowMs,
-      delayMinutes,
-      metadataFallbackTtlHours: options.metadataFallbackTtlHours ?? CONFIG_METADATA_FALLBACK_TTL_HOURS
-    });
+
+    // If bypassAllCaches, always fetch regardless of decision
+    const decision = bypassAllCaches
+      ? { action: 'fetch' as const }
+      : decideForecastFetch({
+        metadata,
+        cachedForecast: cached,
+        force,
+        userInitiated,
+        nowMs,
+        delayMinutes,
+        metadataFallbackTtlHours: options.metadataFallbackTtlHours ?? CONFIG_METADATA_FALLBACK_TTL_HOURS
+      });
+
+    if (import.meta.env.DEV) {
+      console.log(`[weatherApi] ${model.name} decision: ${decision.action}`, {
+        hasCached: Boolean(cached?.hourly?.length),
+        hasMetadata: Boolean(metadata?.runAvailabilityTime),
+        force,
+        bypassAllCaches,
+        userInitiated
+      });
+    }
 
     if (decision.action === 'fetch') {
       fetchModels.push(model.id);
@@ -1083,6 +1321,19 @@ export async function fetchForecastsWithMetadata(
       );
       return;
     }
+
+    // Record diagnostic for skip/pending (non-fetch decisions)
+    recordDiagnostic(model.id, {
+      modelId: model.id,
+      modelName: model.name,
+      decision: decision.action === 'pending' ? 'pending' : (cached ? 'cache-hit' : 'skip'),
+      requestUrl: null,
+      httpStatus: null,
+      httpError: null,
+      hourlyLength: cached?.hourly?.length ?? 0,
+      dailyLength: cached?.daily?.length ?? 0,
+      timestamp: Date.now()
+    });
 
     if (decision.action === 'pending' && decision.pending) {
       pending.push({
@@ -1168,6 +1419,30 @@ export async function fetchForecastsWithMetadata(
     };
   });
 
+  // STEP 2: Normalize at aggregation
+  const normalizedForecasts = forecasts.map(normalizeModel);
+
+  // STEP 3: Finalize diagnostics with filter reasons
+  lastFetchDiagnostics = normalizedForecasts.map(forecast => {
+    const existing = pendingDiagnostics.get(forecast.model.id);
+    return {
+      modelId: forecast.model.id,
+      modelName: forecast.model.name,
+      decision: existing?.decision ?? 'skip',
+      requestUrl: existing?.requestUrl ?? null,
+      httpStatus: existing?.httpStatus ?? null,
+      httpError: existing?.httpError ?? null,
+      hourlyLength: forecast.hourly.length,
+      dailyLength: forecast.daily.length,
+      filterReason: forecast.status === 'error' ? (forecast.reason ?? forecast.error ?? 'Unknown error') : null,
+      timestamp: existing?.timestamp ?? Date.now()
+    };
+  });
+
+  if (import.meta.env.DEV) {
+    console.log('[weatherApi] Fetch diagnostics:', lastFetchDiagnostics);
+  }
+
   logDebug('Forecast gating summary', {
     pendingModels: pending.length,
     fetchedModels: fetchModels.length,
@@ -1190,14 +1465,14 @@ export async function fetchForecastsWithMetadata(
     latestRunAvailabilityTime
   };
   const completeness = buildCompleteness({
-    forecasts,
+    forecasts: normalizedForecasts,
     metadataById,
     fetchedById,
     pending,
     nowMs
   });
 
-  return { forecasts, pending, usedCache, refreshSummary, completeness };
+  return { forecasts: normalizedForecasts, pending, usedCache, refreshSummary, completeness };
 }
 
 export async function getMeta(
@@ -1356,6 +1631,7 @@ function mapForecastArtifactToModel(artifact: ForecastArtifact): ModelForecast |
   for (let i = 0; i < times.length; i++) {
     hourly.push({
       time: times[i],
+      epoch: new Date(times[i]).getTime(),
       temperature: artifact.data.temperature_2m?.[i] ?? 0,
       precipitation: artifact.data.precipitation?.[i] ?? 0,
       precipitationProbability: artifact.data.precipitation_probability?.[i] ?? 0,
@@ -1392,6 +1668,7 @@ function mapObservationArtifactToObservedConditions(artifacts: ObservationArtifa
 
     return [{
       time: artifact.observedAtBucket,
+      epoch: new Date(artifact.observedAtBucket).getTime(),
       temperature: airTempData[stationId] ?? 0,
       precipitation: (artifact.data as any)['precipMm']?.[stationId] ?? undefined,
       windSpeed: (artifact.data as any)['windSpdKmh']?.[stationId] ?? undefined,
@@ -1419,10 +1696,32 @@ function mapObservationArtifactToObservedConditions(artifacts: ObservationArtifa
 /**
  * Fetch data from Vault for a specific date.
  */
-export async function fetchFromVault(date?: string): Promise<{ forecasts: ModelForecast[], observations: ObservedConditions | null }> {
+export async function fetchFromVault(options?: {
+  date?: string;
+  latitude?: number;
+  longitude?: number;
+  timezone?: string;
+}): Promise<{ forecasts: ModelForecast[], observations: ObservedConditions | null }> {
   const vault = getVault();
-  const targetDate = date ?? getTodayDateString();
-  const artifacts = await vault.getArtifactsForDate(targetDate);
+  const targetDate = options?.date ?? getTodayDateString();
+  const locationScopeId =
+    Number.isFinite(options?.latitude ?? NaN) && Number.isFinite(options?.longitude ?? NaN)
+      ? computeLocationScopeId({
+        latitude: options!.latitude as number,
+        longitude: options!.longitude as number,
+        timezone: options?.timezone
+      })
+      : undefined;
+
+  if (import.meta.env.DEV) {
+    console.log(`[weatherApi] Fetching from vault for date: ${targetDate}`);
+  }
+
+  const artifacts = await vault.getArtifactsForDate(targetDate, locationScopeId);
+
+  if (import.meta.env.DEV) {
+    console.log(`[weatherApi] Vault returned ${artifacts.length} artifacts`);
+  }
 
   const forecasts: ModelForecast[] = [];
   const obsArtifacts: ObservationArtifact[] = [];
@@ -1430,10 +1729,19 @@ export async function fetchFromVault(date?: string): Promise<{ forecasts: ModelF
   for (const artifact of artifacts) {
     if (artifact.type === 'forecast') {
       const mapped = mapForecastArtifactToModel(artifact as ForecastArtifact);
-      if (mapped) forecasts.push(mapped);
+      if (mapped) {
+        forecasts.push(mapped);
+        if (import.meta.env.DEV) {
+          console.log(`[weatherApi] Vault: Mapped forecast for ${mapped.model.name}`);
+        }
+      }
     } else if (artifact.type === 'observation') {
       obsArtifacts.push(artifact as ObservationArtifact);
     }
+  }
+
+  if (import.meta.env.DEV) {
+    console.log(`[weatherApi] Vault: ${forecasts.length} forecasts, ${obsArtifacts.length} observation artifacts`);
   }
 
   return {

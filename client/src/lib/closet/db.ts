@@ -73,7 +73,7 @@ export interface InflightEntry {
 // Constants
 // =============================================================================
 
-const DB_NAME = 'weather-closet';
+const DB_NAME = 'weather-closet-v2';
 const DB_VERSION = 2; // Bumped for inflight store
 
 const STORE_BLOBS = 'blobs';

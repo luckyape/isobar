@@ -8,7 +8,8 @@
 import { packageArtifact } from '../artifact';
 import { createManifest, createManifestEntry, packageManifest, getTodayDateString } from '../manifest';
 import { fetchAllForecasts, fetchObservations, type FetchForecastOptions } from './fetcher';
-import type { Artifact, ManifestEntry } from '../types';
+import type { ManifestEntry } from '../types';
+import { computeLocationScopeId, makeLocKey, normalizeLocationScope } from '../location';
 
 // =============================================================================
 // Storage Interface (abstract over S3/R2/local)
@@ -37,6 +38,16 @@ export interface IngestOptions {
     longitude: number;
     timezone?: string;
     storage: StorageBackend;
+    /** Optional Ed25519 private key (hex) to sign manifests. */
+    manifestSigningKeyHex?: string;
+    /** Ingest forecasts in this run (default: true). */
+    includeForecasts?: boolean;
+    /** Ingest observations in this run (default: true). */
+    includeObservations?: boolean;
+    /** Override ingest clock (for deterministic scheduling). */
+    now?: Date;
+    /** If true, also publish legacy unscoped manifests/root.json. Default: true. */
+    publishLegacyGlobal?: boolean;
 }
 
 export interface IngestResult {
@@ -54,73 +65,110 @@ export interface IngestResult {
  * 5. Publish manifest
  */
 export async function runIngest(options: IngestOptions): Promise<IngestResult> {
-    const { latitude, longitude, timezone = 'UTC', storage } = options;
+    const {
+        latitude,
+        longitude,
+        timezone = 'UTC',
+        storage,
+        manifestSigningKeyHex,
+        includeForecasts = true,
+        includeObservations = true,
+        now,
+        publishLegacyGlobal = true
+    } = options;
     const fetchOptions: FetchForecastOptions = { latitude, longitude, timezone };
     const artifacts: ManifestEntry[] = [];
+    const locKey = makeLocKey(latitude, longitude);
 
     console.log('[ingest] Starting ingest cycle...');
 
     // 1. Fetch and package forecasts
-    const forecasts = await fetchAllForecasts(fetchOptions);
-    console.log(`[ingest] Fetched ${forecasts.length} forecasts`);
+    if (includeForecasts) {
+        const forecasts = await fetchAllForecasts(fetchOptions);
+        console.log(`[ingest] Fetched ${forecasts.length} forecasts`);
 
-    for (const forecast of forecasts) {
-        const { blob, hash } = await packageArtifact(forecast);
-        const key = `chunks/${hash}`;
+        for (const forecast of forecasts) {
+            const { blob, hash } = await packageArtifact(forecast);
+            const key = `chunks/${hash}`;
 
-        // Idempotent upload
-        const exists = await storage.exists(key);
-        if (!exists) {
-            await storage.put(key, blob);
-            console.log(`[ingest] Uploaded ${forecast.model} → ${hash.slice(0, 12)}...`);
-        } else {
-            console.log(`[ingest] Skipped ${forecast.model} (exists)`);
+            // Idempotent upload
+            const exists = await storage.exists(key);
+            if (!exists) {
+                await storage.put(key, blob);
+                console.log(`[ingest] Uploaded ${forecast.model} → ${hash.slice(0, 12)}...`);
+            } else {
+                console.log(`[ingest] Skipped ${forecast.model} (exists)`);
+            }
+
+            artifacts.push(createManifestEntry(forecast, hash, blob.length, locKey));
         }
-
-        artifacts.push(createManifestEntry(forecast, hash, blob.length));
     }
 
     // 2. Fetch and package observations
-    try {
-        const result = await fetchObservations({ latitude, longitude });
-        if (result) {
-            const { stationSet, observation } = result;
+    if (includeObservations) {
+        try {
+            const result = await fetchObservations({
+                latitude,
+                longitude,
+                radiusKm: 80,
+                now
+            });
+            if (result) {
+                const { stationSet, observations } = result;
 
-            // 2a. Package & Upload Station Set (Metadata)
-            // Ideally check if this stationSetId already exists to skip re-uploading common metadata
-            const stationSetPkg = await packageArtifact(stationSet);
-            const ssKey = `chunks/${stationSetPkg.hash}`;
+                // 2a. Package & Upload Station Set (Metadata)
+                const stationSetPkg = await packageArtifact(stationSet);
+                const ssKey = `chunks/${stationSetPkg.hash}`;
 
-            if (!(await storage.exists(ssKey))) {
-                await storage.put(ssKey, stationSetPkg.blob);
-                console.log(`[ingest] Uploaded StationSet → ${stationSetPkg.hash.slice(0, 12)}...`);
+                if (!(await storage.exists(ssKey))) {
+                    await storage.put(ssKey, stationSetPkg.blob);
+                    console.log(`[ingest] Uploaded StationSet → ${stationSetPkg.hash.slice(0, 12)}...`);
+                }
+                artifacts.push(createManifestEntry(stationSet, stationSetPkg.hash, stationSetPkg.blob.length, locKey));
+
+                // 2b. Package & Upload Observation buckets (Data)
+                for (const observation of observations) {
+                    const obsPkg = await packageArtifact(observation);
+                    const obsKey = `chunks/${obsPkg.hash}`;
+
+                    if (!(await storage.exists(obsKey))) {
+                        await storage.put(obsKey, obsPkg.blob);
+                        console.log(`[ingest] Uploaded Observation → ${obsPkg.hash.slice(0, 12)}... (${observation.observedAtBucket})`);
+                    }
+
+                    artifacts.push(createManifestEntry(observation, obsPkg.hash, obsPkg.blob.length, locKey));
+                }
             }
-            // Always add to manifest so clients can discover it if they need it?
-            // Actually, clients find it via the ObservationArtifact's stationSetId reference.
-            // But we add it to manifest so the "set of all valid chunks" is complete for this day.
-            artifacts.push(createManifestEntry(stationSet, stationSetPkg.hash, stationSetPkg.blob.length));
-
-            // 2b. Package & Upload Observation (Data)
-            const obsPkg = await packageArtifact(observation);
-            const obsKey = `chunks/${obsPkg.hash}`;
-
-            if (!(await storage.exists(obsKey))) {
-                await storage.put(obsKey, obsPkg.blob);
-                console.log(`[ingest] Uploaded Observation → ${obsPkg.hash.slice(0, 12)}...`);
-            }
-
-            artifacts.push(createManifestEntry(observation, obsPkg.hash, obsPkg.blob.length));
+        } catch (error) {
+            console.warn('[ingest] Failed to fetch observations:', error);
         }
-    } catch (error) {
-        console.warn('[ingest] Failed to fetch observations:', error);
     }
 
-    // 3. Get previous manifest hash for chain
     const today = getTodayDateString();
-    const existingManifests = await storage.list(`manifests/${today}/`);
-    const previousManifestHash = existingManifests.length > 0
-        ? existingManifests[existingManifests.length - 1].split('/').pop()
-        : undefined;
+
+    // 3. Get previous manifest hash for chain (explicit head via root pointer)
+    const scope = normalizeLocationScope({ latitude, longitude, timezone });
+    const locationScopeId = computeLocationScopeId(scope);
+
+    async function readPreviousManifestHash(rootKey: string): Promise<string | undefined> {
+        try {
+            const rootBytes = await storage.get(rootKey);
+            if (!rootBytes) return undefined;
+            const root = JSON.parse(new TextDecoder().decode(rootBytes)) as {
+                latest?: string;
+                latestManifestHash?: string;
+            };
+            if (root.latest === today && typeof root.latestManifestHash === 'string' && root.latestManifestHash) {
+                return root.latestManifestHash;
+            }
+        } catch {
+            // Ignore root parse errors; chaining is best-effort.
+        }
+        return undefined;
+    }
+
+    const scopedRootKey = `locations/${locationScopeId}/manifests/root.json`;
+    const previousManifestHash = await readPreviousManifestHash(scopedRootKey);
 
     // 4. Create and upload manifest
     const manifest = createManifest({
@@ -129,13 +177,29 @@ export async function runIngest(options: IngestOptions): Promise<IngestResult> {
         previousManifestHash
     });
 
-    const { blob: manifestBlob, hash: manifestHash } = await packageManifest(manifest);
-    await storage.put(`manifests/${today}/${manifestHash}`, manifestBlob);
-    console.log(`[ingest] Published manifest → ${manifestHash.slice(0, 12)}...`);
+    const { blob: manifestBlob, hash: manifestHash } = await packageManifest(manifest, manifestSigningKeyHex);
+    const scopedManifestKey = `locations/${locationScopeId}/manifests/${today}/${manifestHash}`;
+    await storage.put(scopedManifestKey, manifestBlob);
 
-    // 5. Update root pointer (the ONLY mutable object)
-    const rootJson = JSON.stringify({ latest: today });
-    await storage.put('manifests/root.json', new TextEncoder().encode(rootJson));
+    // Optional legacy global publish (single-location deployments)
+    if (publishLegacyGlobal) {
+        await storage.put(`manifests/${today}/${manifestHash}`, manifestBlob);
+    }
+
+    console.log(`[ingest] Published manifest → ${manifestHash.slice(0, 12)}... (scope ${locationScopeId.slice(0, 12)}...)`);
+
+    // 5. Update scoped root pointer (mutable per location)
+    const rootJson = JSON.stringify({
+        latest: today,
+        latestManifestHash: manifestHash,
+        scope
+    });
+    await storage.put(scopedRootKey, new TextEncoder().encode(rootJson));
+
+    // Optional legacy global root pointer (ONLY safe for single-location deployments)
+    if (publishLegacyGlobal) {
+        await storage.put('manifests/root.json', new TextEncoder().encode(rootJson));
+    }
 
     console.log(`[ingest] Ingest complete: ${artifacts.length} artifacts`);
 

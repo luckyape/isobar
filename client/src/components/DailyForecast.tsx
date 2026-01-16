@@ -6,7 +6,7 @@
 import { memo, useCallback, useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
 import { ChevronDownIcon, ArrowUp } from 'lucide-react';
-import { ModelCaretIcon } from '@/components/ModelCaretIcon';
+import { ModelBadgeIcon } from '@/components/ModelBadgeIcon';
 import {
   Drawer,
   DrawerClose,
@@ -259,6 +259,8 @@ export const ModelBreakdownPanel = memo(function ModelBreakdownPanel({
       }];
     });
   }, [day.date, dayIndex, forecasts, modelNames, modelOrder]);
+
+
 
   const tempHighs = modelEntries.map((entry) => getNumeric(entry.daily?.temperatureMax));
   const tempLows = modelEntries.map((entry) => getNumeric(entry.daily?.temperatureMin));
@@ -1045,13 +1047,7 @@ const HourlyForecastRow = memo(function HourlyForecastRow({
               aria-expanded={isActive}
               aria-controls={`hourly-breakdown-${hour.time}`}
             >
-              <ModelCaretIcon
-                color="currentColor"
-                className={cn(
-                  'transition-transform origin-center',
-                  isActive && 'rotate-90'
-                )}
-              />
+              <ModelBadgeIcon open={isActive} className={isActive ? 'opacity-100' : 'opacity-70'} />
             </button>
           </div>
         )}
@@ -1227,13 +1223,7 @@ const DailyForecastRow = memo(function DailyForecastRow({
               aria-expanded={isActive}
               aria-controls={`model-breakdown-${day.date}`}
             >
-              <ModelCaretIcon
-                color="currentColor"
-                className={cn(
-                  'transition-transform origin-center',
-                  isActive && 'rotate-90'
-                )}
-              />
+              <ModelBadgeIcon open={isActive} className={isActive ? 'opacity-100' : 'opacity-70'} />
             </button>
           </div>
         )}

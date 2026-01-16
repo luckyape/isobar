@@ -36,10 +36,16 @@ interface HourlyChartProps {
   consensus?: HourlyConsensus[];
   showConsensus?: boolean;
   fallbackForecast?: ModelForecast | null;
+  /** @deprecated use observedTempByEpoch */
   observations?: ObservedHourly[];
   timezone?: string;
   visibleLines?: Record<string, boolean>;
   onToggleLine?: (lineName: string) => void;
+  observedAvailability?: { available: boolean; reason: string | null; detail: string | null };
+  // New strict props
+  observedTempByEpoch?: Map<number, number>;
+  observationsStatus?: 'loading' | 'none' | 'vault' | 'error';
+  nowMs?: number;
 }
 
 export function HourlyChart({
@@ -50,25 +56,23 @@ export function HourlyChart({
   observations = [],
   timezone,
   visibleLines = {},
-  onToggleLine = () => { }
+  onToggleLine = () => { },
+  observedAvailability,
+  observedTempByEpoch,
+  observationsStatus,
+  nowMs
 }: HourlyChartProps) {
   const hasConsensus = showConsensus && consensus.length > 0;
   const isMobile = useIsMobile();
   const observedColor = 'var(--color-observed)';
-  const observationByTime = useMemo(() => {
-    if (!observations.length) return new Map<string, number>();
-    const map = new Map<string, number>();
-    observations.forEach((observation) => {
-      if (!observation.time || !Number.isFinite(observation.temperature)) return;
-      map.set(observation.time, observation.temperature);
-    });
-    return map;
-  }, [observations]);
-  const hasObservations = observationByTime.size > 0;
+
+  const hasObservations = (observedTempByEpoch?.size ?? 0) > 0 && observationsStatus === 'vault';
+
   const consensusByTime = useMemo(() => {
     if (!hasConsensus) return new Map<string, HourlyConsensus>();
     return new Map(consensus.map((hour) => [hour.time, hour]));
   }, [consensus, hasConsensus]);
+
   const modelTemperatureById = useMemo(() => {
     const map = new Map<string, Map<string, number>>();
     forecasts.forEach((forecast) => {
@@ -103,26 +107,31 @@ export function HourlyChart({
     const windowTimes = baseTimes.slice(startIndex, endIndex);
     if (windowTimes.length === 0) return { chartData: [], currentTimeKey };
 
-    const windowStart = windowTimes[0];
-    const windowEnd = windowTimes[windowTimes.length - 1];
-    const observedTimes = Array.from(observationByTime.keys()).filter(
-      (time) =>
-        time >= windowStart &&
-        time <= windowEnd &&
-        (!currentTimeKey || time <= currentTimeKey)
-    );
-    const times = Array.from(new Set([...windowTimes, ...observedTimes])).sort();
+    // Strict Epoch-based Observation Logic
+    const currentNowMs = nowMs ?? Date.now();
+    const canShowObserved = hasObservations && observationsStatus === 'vault';
 
-    const chartData = times.map((time) => {
+    const chartData = windowTimes.map((time) => {
       const timeParts = parseOpenMeteoDateTime(time);
+      const slotEpoch = new Date(time).getTime(); // Epoch-aligned lookup
       const dataPoint: Record<string, any> = {
         time,
         label: timeParts ? formatHourLabel(timeParts) : time,
         fullLabel: timeParts ? formatWeekdayHourLabel(timeParts) : time
       };
-      const observedTemp = observationByTime.get(time);
-      if (observedTemp !== undefined && (!currentTimeKey || time <= currentTimeKey)) {
-        dataPoint.observed = observedTemp;
+
+      if (canShowObserved) {
+        // Strict gating: bucket must be completed
+        // isBucketCompleted logic: bucketEpoch < nowMs - 60*60*1000 approximately? 
+        // Logic from GraphsPanel: isBucketCompleted(bucketMs, 60, nowMs).
+        // Since we don't have isBucketCompleted here, we rely on observedTempByEpoch ONLY containing completed buckets as per contract.
+        // User plan says: "Only include buckets that satisfy isBucketCompleted... in GraphsPanel".
+        // So here we assume if it's in the map, it's valid.
+        // BUT strictness: "Only read observed if ... observedTempByEpoch has slotEpoch".
+        const val = observedTempByEpoch?.get(slotEpoch);
+        if (val !== undefined && Number.isFinite(val)) {
+          dataPoint.observed = val;
+        }
       }
 
       if (hasConsensus) {
@@ -153,7 +162,11 @@ export function HourlyChart({
     consensus,
     fallbackForecast,
     hasConsensus,
-    observationByTime,
+    // dependencies for strictness
+    observedTempByEpoch,
+    observationsStatus,
+    nowMs,
+    hasObservations,
     consensusByTime,
     modelTemperatureById,
     timezone
@@ -395,7 +408,6 @@ export function HourlyChart({
             <span className="text-xs text-foreground/80">Consensus Mean</span>
           </div>
         )}
-        {/* Always show Observed legend item, even if data is unavailable */}
         <div
           className={`flex items-center gap-2 ${hasObservations ? 'cursor-pointer' : ''}`}
           onClick={() => hasObservations && onToggleLine('Observed')}
@@ -410,8 +422,11 @@ export function HourlyChart({
             className="w-6 h-0.5 rounded"
             style={{ backgroundColor: observedColor }}
           />
-          <span className="text-xs text-foreground/80">
-            Observed{!hasObservations && ' - Unavailable'}
+          <span
+            className="text-xs text-foreground/80"
+            title={!hasObservations && observedAvailability?.detail ? observedAvailability.detail : undefined}
+          >
+            Observed{!hasObservations && observedAvailability?.reason ? ` – ${observedAvailability.reason}` : !hasObservations ? ' – Unavailable' : ''}
           </span>
         </div>
         {WEATHER_MODELS.map((model) => (

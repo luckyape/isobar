@@ -10,13 +10,11 @@ bucket_name = "weather-forecast-cdn"
 
 # Cron triggers for scheduled ingest
 [triggers]
-crons = ["0 */6 * * *"]  # Every 6 hours
+crons = ["0 */6 * * *", "0 * * * *"]  # Forecasts every 6 hours; observations hourly on the hour
 
 # Environment variables
 [vars]
-INGEST_LATITUDE = "43.6532"
-INGEST_LONGITUDE = "-79.3832"
-INGEST_TIMEZONE = "America/Toronto"
+VITE_CDN_URL = "https://weather-forecast-cdn.graham-cbc.workers.dev"
 
 # Production environment
 [env.production]
@@ -25,3 +23,4 @@ name = "weather-forecast-cdn-prod"
 [[env.production.r2_buckets]]
 binding = "BUCKET"
 bucket_name = "weather-forecast-cdn-prod"
+ 

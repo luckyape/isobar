@@ -288,6 +288,12 @@ export interface ManifestEntry {
     /** Size in bytes (compressed blob) */
     sizeBytes: number;
 
+    /**
+     * Canonical location key for associating this entry with a client location.
+     * Format: "v1:<lat>,<lon>" (exactly 4 decimals, -0.0000 normalized to 0.0000).
+     */
+    locKey?: string;
+
     // Type-specific metadata for filtering without downloading
     model?: string;
     runTime?: string;
@@ -310,4 +316,3 @@ export const BLOB_MAGIC = 0x57464344; // "WFCD" in ASCII
 // =============================================================================
 
 export const CURRENT_SCHEMA_VERSION = 1;
-

@@ -13,6 +13,7 @@ import { type TrustMode } from './reachability';
 import { unpackageManifest } from '@cdn/manifest';
 import type { DailyManifest, ManifestEntry } from '@cdn/types';
 import { withClosetLock } from './locks';
+import { getZonedDateParts, formatDateTimeKey } from '../timeUtils';
 
 // =============================================================================
 // Types
@@ -196,16 +197,26 @@ async function indexManifestEntry(
 ): Promise<void> {
     if (entry.type === 'observation') {
         if (entry.source && entry.observedAtBucket && entry.stationSetId) {
+            // Normalize observedAtBucket to minute-precision for consistent querying
+            // The manifest may have seconds/Z (e.g. "2024-01-01T12:00:00Z")
+            // The query layer uses "2024-01-01T12:00"
+            let bucketIso = entry.observedAtBucket;
+            const parts = getZonedDateParts(new Date(entry.observedAtBucket), 'UTC');
+            if (parts) {
+                const formatted = formatDateTimeKey(parts);
+                if (formatted) bucketIso = formatted;
+            }
+
             const key = buildObservationKey(
                 entry.source,
-                entry.observedAtBucket,
+                bucketIso,
                 60, // Default bucket minutes
                 entry.stationSetId
             );
             await closetDB.upsertObservationIndex({
                 key,
                 source: entry.source,
-                observedAtBucket: entry.observedAtBucket,
+                observedAtBucket: bucketIso,
                 bucketMinutes: 60,
                 stationSetId: entry.stationSetId,
                 hash: entry.hash

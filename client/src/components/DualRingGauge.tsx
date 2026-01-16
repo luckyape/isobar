@@ -257,8 +257,8 @@ export function DualRingGauge({
         >
             <span aria-hidden="true">
                 <ModelBadgeIcon
+                    open={modelDetailsOpen}
                     className={cn(
-                        'transition-opacity',
                         modelDetailsOpen ? 'opacity-100' : 'opacity-70'
                     )}
                 />

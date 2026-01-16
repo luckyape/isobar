@@ -9,8 +9,9 @@ import { getVault, type Vault } from './store';
 import { getBlobContentHash } from '@cdn/artifact';
 import { unpackageManifest, getLastNDays } from '@cdn/manifest';
 import type { DailyManifest, ManifestEntry } from '@cdn/types';
+import { computeLocationScopeId, type LocationScopeInput } from '@cdn/location';
 import { onSyncComplete, getDefaultClosetPolicy, type MaintenanceResult, getClosetDB, withClosetLock } from '../closet';
-import { getCdnBaseUrl } from '../config';
+import { getCdnBaseUrl, getManifestPubKeyHex } from '../config';
 
 // =============================================================================
 // Configuration
@@ -19,11 +20,16 @@ import { getCdnBaseUrl } from '../config';
 const DEFAULT_SYNC_DAYS = 7;
 const DEFAULT_CONCURRENCY = 4;
 const SYNC_STATE_KEY = 'sync-state';
+const MANIFEST_INDEX_KEY = 'manifest-index';
 
 export interface SyncConfig {
     cdnUrl: string;
     syncDays: number;
     concurrency: number;
+    /** Optional location scoping for manifests/root pointers. */
+    location?: LocationScopeInput;
+    /** Optional precomputed location scope id (64-hex). */
+    locationScopeId?: string;
 }
 
 export interface SyncState {
@@ -51,14 +57,31 @@ export class SyncEngine {
     private vault: Vault;
     private config: SyncConfig;
     private abortController: AbortController | null = null;
+    private scopeId?: string;
 
     constructor(config?: Partial<SyncConfig>) {
         this.vault = getVault();
+        this.scopeId =
+            config?.locationScopeId ??
+            (config?.location ? computeLocationScopeId(config.location) : undefined);
         this.config = {
             cdnUrl: config?.cdnUrl ?? getCdnBaseUrl(),
             syncDays: config?.syncDays ?? DEFAULT_SYNC_DAYS,
-            concurrency: config?.concurrency ?? DEFAULT_CONCURRENCY
+            concurrency: config?.concurrency ?? DEFAULT_CONCURRENCY,
+            location: config?.location,
+            locationScopeId: this.scopeId
         };
+    }
+
+    private metaKey(base: string): string {
+        return this.scopeId ? `${base}:${this.scopeId}` : base;
+    }
+
+    private scopedPath(path: string): string {
+        if (!this.scopeId) return path;
+        // Chunks are global/content-addressed; only manifests are location-scoped.
+        if (path.startsWith('chunks/')) return path;
+        return `locations/${this.scopeId}/${path}`;
     }
 
     /**
@@ -68,6 +91,12 @@ export class SyncEngine {
         await this.vault.open();
         this.abortController = new AbortController();
 
+        // Load pinned manifest public key (throws in PROD if missing)
+        const pinnedManifestPubKeyHex = getManifestPubKeyHex();
+
+        const cdnUrl = this.config.cdnUrl;
+        console.log(`[SyncEngine] Starting sync from ${cdnUrl}`);
+
         const state: SyncState = {
             blobsDownloaded: 0,
             bytesDownloaded: 0
@@ -75,8 +104,28 @@ export class SyncEngine {
 
         try {
             // 1. Fetch root.json to get latest manifest date
-            const root = await this.fetchJson<{ latest: string }>('manifests/root.json');
+            let root: { latest?: string } | null = null;
+            try {
+                root = await this.fetchJson<{ latest?: string }>(this.scopedPath('manifests/root.json'));
+            } catch (err) {
+                const status = (err as any)?.status;
+                if (status === 404 && this.scopeId) {
+                    // Location scope may not exist yet; treat as empty sync.
+                    onProgress?.({ phase: 'complete', total: 0, downloaded: 0, skipped: 0, failed: 0 });
+                    state.lastSyncedAt = Date.now();
+                    await this.vault.setMeta(this.metaKey(SYNC_STATE_KEY), state);
+                    return state;
+                }
+                throw err;
+            }
+
             const latestDate = root.latest;
+            if (!latestDate) {
+                onProgress?.({ phase: 'complete', total: 0, downloaded: 0, skipped: 0, failed: 0 });
+                state.lastSyncedAt = Date.now();
+                await this.vault.setMeta(this.metaKey(SYNC_STATE_KEY), state);
+                return state;
+            }
             state.lastSyncedDate = latestDate;
 
             // 2. Get dates to sync
@@ -92,13 +141,14 @@ export class SyncEngine {
                 failed: 0
             };
 
-            const manifestIndex: Record<string, string[]> = await this.vault.getMeta('manifest-index') ?? {};
+            const manifestIndex: Record<string, string[]> =
+                await this.vault.getMeta(this.metaKey(MANIFEST_INDEX_KEY)) ?? {};
 
             for (const date of dates) {
                 if (this.abortController.signal.aborted) break;
 
                 try {
-                    const dateResults = await this.fetchManifestsForDate(date);
+                    const dateResults = await this.fetchManifestsForDate(date, pinnedManifestPubKeyHex);
                     manifests.push(...dateResults.map((r) => r.data));
 
                     // Index manifest hashes
@@ -181,8 +231,8 @@ export class SyncEngine {
 
             // 6. Update sync state
             state.lastSyncedAt = Date.now();
-            await this.vault.setMeta(SYNC_STATE_KEY, state);
-            await this.vault.setMeta('manifest-index', manifestIndex);
+            await this.vault.setMeta(this.metaKey(SYNC_STATE_KEY), state);
+            await this.vault.setMeta(this.metaKey(MANIFEST_INDEX_KEY), manifestIndex);
 
             // 7. Run closet maintenance (GC, indexing)
             const manifestHashes = Object.values(manifestIndex).flat();
@@ -202,7 +252,11 @@ export class SyncEngine {
 
             onProgress?.({ phase: 'complete', total: 0, downloaded: 0, skipped: 0, failed: 0 });
 
+            console.log(`[SyncEngine] Sync success. Downloaded: ${state.blobsDownloaded} blobs, ${state.bytesDownloaded} bytes.`);
             return state;
+        } catch (error) {
+            console.error(`[SyncEngine] Sync failed from ${this.config.cdnUrl}:`, error);
+            throw error;
         } finally {
             this.abortController = null;
         }
@@ -220,7 +274,7 @@ export class SyncEngine {
      */
     async getState(): Promise<SyncState | null> {
         await this.vault.open();
-        return this.vault.getMeta(SYNC_STATE_KEY);
+        return this.vault.getMeta(this.metaKey(SYNC_STATE_KEY));
     }
 
     // ===========================================================================
@@ -229,10 +283,14 @@ export class SyncEngine {
 
     /**
      * Fetch manifests for a specific date.
+     * @param pinnedManifestPubKeyHex - If provided, manifests MUST be signed by this key.
      */
-    private async fetchManifestsForDate(date: string): Promise<Array<{ hash: string; data: DailyManifest }>> {
+    private async fetchManifestsForDate(
+        date: string,
+        pinnedManifestPubKeyHex?: string
+    ): Promise<Array<{ hash: string; data: DailyManifest }>> {
         // List manifests for the date
-        const listUrl = `${this.config.cdnUrl}/manifests/${date}/`;
+        const listUrl = `${this.config.cdnUrl}/${this.scopedPath(`manifests/${date}/`)}`;
 
         try {
             // Fetch the list of manifest hashes
@@ -250,14 +308,14 @@ export class SyncEngine {
                 if (this.abortController?.signal.aborted) break;
                 try {
                     const manifestBlob = await this.fetchAndVerify(`manifests/${date}/${hash}`, hash);
-                    // Pass undefined for expectedPublicKey in dev for now
-                    const manifest = await unpackageManifest(manifestBlob);
+                    // Verify signature if pinned key is configured
+                    const manifest = await unpackageManifest(manifestBlob, pinnedManifestPubKeyHex);
                     results.push({ hash, data: manifest });
 
                     // Also store the manifest blob in the vault itself
                     await this.vault.put(hash, manifestBlob);
                 } catch (error) {
-                    console.warn(`Failed to unpackage manifest ${hash} for ${date}:`, error);
+                    console.warn(`Failed to unpackage/verify manifest ${hash} for ${date}:`, error);
                 }
             }
 
@@ -272,7 +330,7 @@ export class SyncEngine {
      * Fetch and verify a blob by hash.
      */
     private async fetchAndVerify(path: string, expectedHash: string): Promise<Uint8Array> {
-        const url = `${this.config.cdnUrl}/${path}`;
+        const url = `${this.config.cdnUrl}/${this.scopedPath(path)}`;
         const response = await fetch(url, { signal: this.abortController?.signal });
 
         if (!response.ok) {
@@ -297,7 +355,9 @@ export class SyncEngine {
         const response = await fetch(url, { signal: this.abortController?.signal });
 
         if (!response.ok) {
-            throw new Error(`Fetch failed: ${response.status}`);
+            const error = new Error(`Fetch failed: ${response.status}`);
+            (error as any).status = response.status;
+            throw error;
         }
 
         return response.json();
@@ -341,11 +401,18 @@ export class SyncEngine {
 // Singleton Instance
 // =============================================================================
 
-let syncEngineInstance: SyncEngine | null = null;
+const syncEnginesByScope = new Map<string, SyncEngine>();
 
 export function getSyncEngine(config?: Partial<SyncConfig>): SyncEngine {
-    if (!syncEngineInstance) {
-        syncEngineInstance = new SyncEngine(config);
-    }
-    return syncEngineInstance;
+    const scopeId =
+        config?.locationScopeId ??
+        (config?.location ? computeLocationScopeId(config.location) : undefined);
+    const key = scopeId ?? 'global';
+
+    const existing = syncEnginesByScope.get(key);
+    if (existing) return existing;
+
+    const engine = new SyncEngine({ ...config, locationScopeId: scopeId });
+    syncEnginesByScope.set(key, engine);
+    return engine;
 }

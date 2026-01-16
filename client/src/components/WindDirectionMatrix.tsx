@@ -20,6 +20,7 @@ import {
 
 type TimeSlot = {
   time: string;
+  epoch: number;
   label: string;
   fullLabel: string;
   isCurrent: boolean;
@@ -191,7 +192,7 @@ export function WindDirectionMatrix({
   modelAvailability,
   consensusByTime,
   showConsensus,
-  observedWindByTime,
+  observedWindByEpoch,
   observedCutoffTimeKey
 }: {
   timeSlots: TimeSlot[];
@@ -199,7 +200,7 @@ export function WindDirectionMatrix({
   modelAvailability: Map<string, boolean>;
   consensusByTime: Map<string, HourlyConsensus>;
   showConsensus: boolean;
-  observedWindByTime: Map<string, ObservedWindSample>;
+  observedWindByEpoch: Map<number, ObservedWindSample>;
   observedCutoffTimeKey?: string | null;
 }) {
   const isMobile = useIsMobile();
@@ -230,10 +231,10 @@ export function WindDirectionMatrix({
       label: 'Observed',
       type: 'observed' as const,
       color: OBSERVED_COLOR,
-      available: observedWindByTime.size > 0
+      available: observedWindByEpoch.size > 0
     });
     return list;
-  }, [modelAvailability, observedWindByTime, showConsensus]);
+  }, [modelAvailability, observedWindByEpoch, showConsensus]);
 
   const agreementByTime = useMemo(() => {
     const map = new Map<string, number | null>();
@@ -293,7 +294,7 @@ export function WindDirectionMatrix({
             available: row.available
           };
         }
-        const observed = observedWindByTime.get(slot.time) ?? null;
+        const observed = observedWindByEpoch.get(slot.epoch) ?? null;
         return {
           id: row.id,
           name: row.label,
@@ -309,7 +310,7 @@ export function WindDirectionMatrix({
       });
       return { slot, rows: columnRows };
     });
-  }, [agreementByTime, consensusByTime, modelHourlyById, observedWindByTime, rows, timeSlots]);
+  }, [agreementByTime, consensusByTime, modelHourlyById, observedWindByEpoch, rows, timeSlots]);
 
   if (timeSlots.length === 0) {
     return null;

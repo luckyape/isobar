@@ -5,7 +5,7 @@ import { WEATHER_CODES } from '@/lib/weatherApi';
 import { findCurrentHourIndex } from '@/lib/timeUtils';
 import { cn } from '@/lib/utils';
 import { ForecastDisplay } from '@/components/ForecastDisplay';
-import { ModelCaretIcon } from '@/components/ModelCaretIcon';
+import { ModelBadgeIcon } from '@/components/ModelBadgeIcon';
 import { ModelForecastDrilldownPanel } from '@/components/ModelForecastDrilldownPanel';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 
@@ -192,7 +192,7 @@ export function CategoryDetailPanel({
                 aria-label={`View ${entry.name} model details`}
                 disabled={!canOpen}
               >
-                <ModelCaretIcon color={entry.color} />
+                <ModelBadgeIcon open={activeModelName === entry.name} className={activeModelName === entry.name ? 'opacity-100' : 'opacity-70'} />
               </button>
 
               <div className="flex items-center gap-2 text-[9px] sm:text-[10px] font-semibold uppercase tracking-caps text-foreground/70">

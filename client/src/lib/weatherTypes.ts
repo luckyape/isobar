@@ -10,6 +10,7 @@ export interface WeatherModel {
 
 export interface HourlyForecast {
     time: string;
+    epoch: number;
     temperature: number;
     precipitation: number;
     precipitationProbability: number;
@@ -36,6 +37,8 @@ export interface DailyForecast {
 }
 
 export interface ModelForecast {
+    status?: 'ok' | 'error';
+    reason?: string;
     model: WeatherModel;
     hourly: HourlyForecast[];
     daily: DailyForecast[];
@@ -64,6 +67,7 @@ export interface ModelMetadata {
 
 export interface ObservedHourly {
     time: string;
+    epoch?: number;
     temperature: number;
     precipitation?: number;
     windSpeed?: number;

@@ -80,7 +80,7 @@ function getZonedParts(date: Date, timeZone?: string): Required<DateParts> | nul
       minute: '2-digit',
       hourCycle: 'h23'
     });
-    const parts = formatter.formatToParts(new Date());
+    const parts = formatter.formatToParts(date);
     const values: Record<string, number> = {};
     parts.forEach((part) => {
       if (part.type !== 'literal') {

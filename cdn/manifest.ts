@@ -5,7 +5,7 @@
  * Manifests are themselves content-addressed artifacts (signed for authenticity).
  */
 
-import { canonicalJsonBytes, canonicalMsgPack, decodeMsgPack } from './canonical';
+import { canonicalMsgPack, decodeMsgPack } from './canonical';
 import { compress, decompressWithEncoding, ENCODING_GZIP_MSGPACK } from './compress';
 import { hash, toHex, fromHex, hashesEqual } from './hash';
 import { BLOB_HEADER_SIZE } from './artifact';
@@ -24,13 +24,18 @@ import {
 export function createManifestEntry(
     artifact: Artifact,
     artifactHash: string,
-    sizeBytes: number
+    sizeBytes: number,
+    locKey?: string
 ): ManifestEntry {
     const entry: ManifestEntry = {
         hash: artifactHash,
         type: artifact.type,
         sizeBytes
     };
+
+    if (locKey) {
+        entry.locKey = locKey;
+    }
 
     // Add type-specific metadata for filtering
     if (artifact.type === 'forecast') {
@@ -90,7 +95,7 @@ export async function packageManifest(
     // 1. Handle Signing
     if (privateKeyHex) {
         // Strip existing signature to get canonical content bytes
-        const { signature, ...cleanManifest } = manifest;
+        const { signature: _signature, ...cleanManifest } = manifest;
         const payloadBytes = canonicalMsgPack(cleanManifest);
 
         // Sign the content
@@ -176,7 +181,7 @@ export async function unpackageManifest(
         }
 
         // Reconstruct what was signed (the manifest WITHOUT the signature)
-        const { signature, ...cleanManifest } = manifest;
+        const { signature: _signature, ...cleanManifest } = manifest;
         const signedBytes = canonicalMsgPack(cleanManifest);
         const sigBytes = fromHex(manifest.signature.signature);
         const pubKeyBytes = fromHex(expectedPublicKeyHex); // Trust the provided key, not the envelope key

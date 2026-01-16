@@ -14,10 +14,11 @@ import { unpackageManifest } from '@cdn/manifest';
 // Database Schema
 // =============================================================================
 
-const DB_NAME = 'weather-vault';
+const DB_NAME = 'weather-vault-v2';
 const DB_VERSION = 1;
 const STORE_BLOBS = 'blobs';       // Raw blobs keyed by hash
 const STORE_META = 'meta';         // Local metadata (lastSync, etc.)
+const META_MANIFEST_INDEX = 'manifest-index';
 
 // =============================================================================
 // Vault Class
@@ -184,8 +185,9 @@ export class Vault {
     /**
      * Get all artifacts for a specific date by looking at synced manifests.
      */
-    async getArtifactsForDate(date: string): Promise<Artifact[]> {
-        const manifestIndex: Record<string, string[]> = await this.getMeta('manifest-index') ?? {};
+    async getArtifactsForDate(date: string, locationScopeId?: string): Promise<Artifact[]> {
+        const indexKey = locationScopeId ? `${META_MANIFEST_INDEX}:${locationScopeId}` : META_MANIFEST_INDEX;
+        const manifestIndex: Record<string, string[]> = await this.getMeta(indexKey) ?? {};
         const manifestHashes = manifestIndex[date] ?? [];
         const artifacts: Artifact[] = [];
 

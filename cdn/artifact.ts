@@ -14,13 +14,13 @@
  *   Bytes 42-45: Encoding flags (uint32 BE) — for future extensibility
  *
  * The artifact ID is derived from:
- *   BLAKE3(canonicalJsonBytes(artifact))
+ *   BLAKE3(canonicalMsgPack(artifact))
  *
  * Storage uses MsgPack+gzip for compactness, but the ID is stable
  * regardless of compression algorithm/level/implementation.
  */
 
-import { canonicalJsonBytes, canonicalMsgPack, decodeMsgPack } from './canonical';
+import { canonicalMsgPack, decodeMsgPack } from './canonical';
 import { compress, decompressWithEncoding, ENCODING_GZIP_MSGPACK } from './compress';
 import { hash, toHex, hashesEqual } from './hash';
 import {
