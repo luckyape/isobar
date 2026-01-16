@@ -1,19 +1,15 @@
 import React, { useState, useEffect } from 'react';
-import { Star, Check, Search, MapPin, Loader2, X, ChevronDown, Crown } from 'lucide-react';
+import { Star, Check, Search, MapPin, Loader2, X, ChevronDown, Crown, Info } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Command, CommandInput, CommandList, CommandEmpty, CommandGroup, CommandItem } from '@/components/ui/command';
 import { Dialog, DialogContent, DialogTrigger, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Drawer, DrawerContent, DrawerTrigger, DrawerHeader, DrawerTitle } from '@/components/ui/drawer';
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { searchLocations, CANADIAN_CITIES, type Location } from '@/lib/weatherApi';
 import { hasEverSetPrimary, markPrimaryAsSet } from '@/lib/locationStore';
 import { PrimaryLocationDialog } from '@/components/PrimaryLocationDialog';
-import { ComparisonTooltipCard } from '@/components/ComparisonTooltip';
 import { cn } from '@/lib/utils';
-
-const TOOLTIP_CONTENT_CLASSNAME = 'p-0 bg-transparent shadow-none border-none text-foreground [&>svg]:hidden';
 
 const FAVORITES_STORAGE_KEY = 'weather-consensus-favorites';
 
@@ -163,13 +159,26 @@ export function LocationSearch({ currentLocation, primaryLocation, onLocationSel
     </Button>
   );
 
+  // CTA section for Primary Location explanation
+  const PrimaryCTA = onSetPrimary && !primaryLocation ? (
+    <div className="px-3 py-3 border-t border-white/10 bg-primary/5">
+      <div className="flex items-start gap-2">
+        <Info className="w-4 h-4 text-primary shrink-0 mt-0.5" />
+        <p className="text-xs text-foreground/70">
+          <span className="font-medium text-foreground">Set a Primary Location</span> to collect observations for deeper weather analysis over time.
+        </p>
+      </div>
+    </div>
+  ) : null;
+
   const LocationContent = (
-    <div className={cn(isDesktop ? 'w-[400px]' : 'h-[80vh]')}>
-      <Command shouldFilter={false} loop>
+    <div className={cn(isDesktop ? 'w-[400px]' : 'h-[80vh]', 'flex flex-col')}>
+      <Command shouldFilter={false} loop className="flex-1 flex flex-col min-h-0">
         <div className={cn('p-3 border-b border-white/10', isDesktop ? '' : 'sticky top-0 bg-background/95 backdrop-blur-xl z-10')}>
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-foreground/70" />
             <CommandInput
+              autoFocus
               value={query}
               onValueChange={setQuery}
               placeholder="Search Canadian cities..."
@@ -185,7 +194,7 @@ export function LocationSearch({ currentLocation, primaryLocation, onLocationSel
             )}
           </div>
         </div>
-        <CommandList className="max-h-[calc(80vh-100px)] px-2 pb-2">
+        <CommandList className="flex-1 overflow-y-auto px-2 pb-2">
           {isSearching && (
             <div className="flex items-center justify-center py-4">
               <Loader2 className="w-5 h-5 animate-spin text-primary" />
@@ -217,6 +226,7 @@ export function LocationSearch({ currentLocation, primaryLocation, onLocationSel
           )}
         </CommandList>
       </Command>
+      {PrimaryCTA}
     </div>
   );
 
@@ -301,26 +311,17 @@ function LocationItem({ location, onSelect, isFavorite, onFavoriteToggle, isSele
       </div>
       {/* Set as Primary button - only show if not already primary and handler exists */}
       {!isPrimary && onSetPrimary && (
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-7 px-2 text-xs text-foreground/60 hover:text-foreground md:opacity-0 md:group-hover:opacity-100 transition-opacity"
-              aria-label={`Set ${location.name} as primary location`}
-              onClick={(e) => {
-                e.stopPropagation();
-                onSetPrimary(location);
-              }}>
-              Set Primary
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent side="top" className={TOOLTIP_CONTENT_CLASSNAME}>
-            <ComparisonTooltipCard title="Set Primary">
-              <p className="text-xs text-foreground/70">Collect observations for deeper weather analysis over time.</p>
-            </ComparisonTooltipCard>
-          </TooltipContent>
-        </Tooltip>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-7 px-2 text-xs text-foreground/60 hover:text-foreground md:opacity-0 md:group-hover:opacity-100 transition-opacity"
+          aria-label={`Set ${location.name} as primary location`}
+          onClick={(e) => {
+            e.stopPropagation();
+            onSetPrimary(location);
+          }}>
+          Set Primary
+        </Button>
       )}
       <Button
         variant="ghost"
