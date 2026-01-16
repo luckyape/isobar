@@ -5,7 +5,7 @@
 
 import React, { useMemo, useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Thermometer, Droplets, Wind, Cloud, Layers, Navigation, List as ListIcon } from 'lucide-react';
+import { Thermometer, Droplets, Wind, Cloud, Layers, Navigation, List as ListIcon, Crown } from 'lucide-react';
 import {
   Tabs,
   TabsContent,
@@ -98,6 +98,7 @@ interface GraphsPanelProps {
   onToggleLine?: (lineName: string) => void;
   location?: { latitude: number; longitude: number };
   lastUpdated?: Date | null;
+  isPrimary?: boolean;
 }
 
 interface HourlyWindow {
@@ -165,6 +166,10 @@ function buildHourlyWindow({
 }
 
 function convertToObservedHourly(data: ObservationData, timezone?: string): ObservedHourly[] {
+  // Defensive check: ensure data.series and data.series.buckets exist
+  if (!data?.series?.buckets) {
+    return [];
+  }
   return data.series.buckets.map((t, i) => {
     // Convert ms -> Local Key using the graph's timezone (or default UTC)
     // This ensures alignment with forecast keys (which are typically local)
@@ -1448,7 +1453,8 @@ export function GraphsPanel({
   visibleLines = {},
   onToggleLine = () => { },
   location,
-  lastUpdated
+  lastUpdated,
+  isPrimary = true
 }: GraphsPanelProps) {
   const [activeGraph, setActiveGraph] = useState<GraphKey>('temperature');
   const [viewMode, setViewMode] = useState<ViewMode>('chart');
@@ -1461,7 +1467,13 @@ export function GraphsPanel({
   const [fetchError, setFetchError] = useState<Error | null>(null);
 
   useEffect(() => {
-    if (!location) return;
+    // GATING: Only fetch observations for primary location
+    // When browsing non-primary, observations are disabled
+    if (!location || !isPrimary) {
+      setObservationsStatus('none');
+      setFetchedObservations(null);
+      return;
+    }
 
     // Determine time range from forecasts or consensus
     // We already compute windowTimes via buildHourlyWindow, but that depends on props.
@@ -1609,7 +1621,7 @@ export function GraphsPanel({
 
     // Strict Map Build - NO fallback
     const map = new Map<number, number>();
-    if (observationsStatus !== 'vault' || !fetchedObservations) return map;
+    if (observationsStatus !== 'vault' || !fetchedObservations?.series) return map;
 
     const nowMs = Date.now();
 
@@ -1986,7 +1998,7 @@ export function GraphsPanel({
               nowMs={Date.now()}
               nowMarkerTimeKey={precipNowMarkerTimeKey}
               observedCutoffTimeKey={precipObservedCutoffTimeKey}
-              isUnverified={fetchedObservations?.trust.mode === 'unverified'}
+              isUnverified={fetchedObservations?.trust?.mode === 'unverified'}
               observedAvailability={observedAvailability.precipitation}
             />
           )}
@@ -2056,7 +2068,7 @@ export function GraphsPanel({
               nowMs={Date.now()}
               nowMarkerTimeKey={precipNowMarkerTimeKey}
               observedCutoffTimeKey={currentTimeKey}
-              isUnverified={fetchedObservations?.trust.mode === 'unverified'}
+              isUnverified={fetchedObservations?.trust?.mode === 'unverified'}
               observedAvailability={observedAvailability.conditions}
             />
           )}

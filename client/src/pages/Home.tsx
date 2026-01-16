@@ -46,6 +46,8 @@ type DrawerTabKey = typeof DRAWER_TABS[number]['key'];
 export default function Home() {
   const {
     location,
+    primaryLocation,
+    isPrimary,
     forecasts,
     consensus,
     observations,
@@ -55,6 +57,7 @@ export default function Home() {
     lastUpdated,
     refreshNotice,
     setLocation,
+    setPrimaryLocation,
     refresh
   } = useWeather();
   const [showModelList, setShowModelList] = useState(false);
@@ -429,9 +432,12 @@ export default function Home() {
         <div className="fixed inset-0 bg-gradient-to-b from-background/80 via-background/90 to-background" />
         <Header
           location={location}
+          primaryLocation={primaryLocation}
+          isPrimary={isPrimary}
           isOffline={isOffline}
           isLoading={isLoading}
           onLocationSelect={setLocation}
+          onSetPrimary={setPrimaryLocation}
           onRefresh={refresh}
         />
         <div className="container py-20">
@@ -455,9 +461,12 @@ export default function Home() {
         <div className="fixed inset-0 bg-gradient-to-b from-background/80 via-background/90 to-background" />
         <Header
           location={location}
+          primaryLocation={primaryLocation}
+          isPrimary={isPrimary}
           isOffline={isOffline}
           isLoading={isLoading}
           onLocationSelect={setLocation}
+          onSetPrimary={setPrimaryLocation}
           onRefresh={refresh}
         />
         <div className="container py-20">
@@ -485,9 +494,12 @@ export default function Home() {
         <div className="fixed inset-0 bg-gradient-to-b from-background/80 via-background/90 to-background" />
         <Header
           location={location}
+          primaryLocation={primaryLocation}
+          isPrimary={isPrimary}
           isOffline={isOffline}
           isLoading={isLoading}
           onLocationSelect={setLocation}
+          onSetPrimary={setPrimaryLocation}
           onRefresh={refresh}
         />
         <div className="container py-20">
@@ -588,9 +600,12 @@ export default function Home() {
       <div className="relative z-10">
         <Header
           location={location}
+          primaryLocation={primaryLocation}
+          isPrimary={isPrimary}
           isOffline={isOffline}
           isLoading={isLoading}
           onLocationSelect={setLocation}
+          onSetPrimary={setPrimaryLocation}
           onRefresh={refresh}
         />
 
@@ -943,6 +958,7 @@ export default function Home() {
               onToggleLine={toggleLineVisibility}
               location={location ?? undefined}
               lastUpdated={lastUpdated}
+              isPrimary={isPrimary}
             />
           </motion.section>
 

@@ -1,15 +1,34 @@
 /**
  * useWeather Hook - Arctic Data Observatory
  * Manages weather data fetching, caching, and consensus calculation
+ *
+ * PRIMARY vs ACTIVE LOCATION:
+ * - activeLocation: Currently viewed location (what charts display)
+ * - primaryLocation: The "weatherman assigned" location for deeper features
+ *
+ * OBSERVATIONS GATING:
+ * Observations are ONLY fetched for the primary location. When browsing
+ * a non-primary location, forecasts are shown but observations are not.
  */
 
-import { useState, useEffect, useCallback, useRef } from 'react';
-import { fetchForecastsWithMetadata, getCachedForecasts, fetchObservedHourly, type ObservedConditions, type ModelForecast, type Location, type DataCompleteness, CANADIAN_CITIES } from '@/lib/weatherApi';
+import { useState, useEffect, useCallback, useRef, useSyncExternalStore } from 'react';
+import { fetchForecastsWithMetadata, getCachedForecasts, fetchObservedHourly, type ObservedConditions, type ModelForecast, type Location, type DataCompleteness } from '@/lib/weatherApi';
 import { calculateConsensus, type ConsensusResult } from '@/lib/consensus';
 import { getSyncEngine, type SyncProgress } from '@/lib/vault/sync';
+import {
+  getActiveLocation,
+  getPrimaryLocation,
+  setActiveLocation as storeSetActive,
+  setPrimaryLocation as storeSetPrimary,
+  isPrimaryLocation,
+  subscribeToLocationChanges,
+  getLocationSnapshot
+} from '@/lib/locationStore';
 
 interface WeatherState {
   location: Location | null;
+  primaryLocation: Location | null;
+  isPrimary: boolean;
   forecasts: ModelForecast[];
   consensus: ConsensusResult | null;
   observations: ObservedConditions | null;
@@ -25,35 +44,21 @@ interface WeatherState {
   syncProgress: SyncProgress | null;
 }
 
-const STORAGE_KEY = 'weather-consensus-location';
-
-// Get saved location from localStorage
-function getSavedLocation(): Location | null {
-  try {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved) {
-      return JSON.parse(saved);
-    }
-  } catch (e) {
-    console.error('Error reading saved location:', e);
-  }
-  return null;
-}
-
-// Save location to localStorage
-function saveLocation(location: Location): void {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(location));
-  } catch (e) {
-    console.error('Error saving location:', e);
-  }
-}
-
 export function useWeather() {
   const requestIdRef = useRef(0);
   const pendingRetryRef = useRef<Map<string, number>>(new Map());
+
+  // Subscribe to location store changes
+  const locationSnapshot = useSyncExternalStore(
+    subscribeToLocationChanges,
+    getLocationSnapshot,
+    getLocationSnapshot
+  );
+
   const [state, setState] = useState<WeatherState>({
-    location: null,
+    location: locationSnapshot.activeLocation,
+    primaryLocation: locationSnapshot.primaryLocation,
+    isPrimary: locationSnapshot.isViewingPrimary,
     forecasts: [],
     consensus: null,
     observations: null,
@@ -99,13 +104,18 @@ export function useWeather() {
     }
 
     try {
-      const observationsPromise = isOffline
-        ? null
-        : fetchObservedHourly(
+      // GATING: Only fetch observations for the PRIMARY location.
+      // When browsing non-primary locations, we skip observation fetches
+      // to avoid unnecessary API calls and confusion about which location's
+      // observations are being displayed.
+      const shouldFetchObservations = !isOffline && isPrimaryLocation(location);
+      const observationsPromise = shouldFetchObservations
+        ? fetchObservedHourly(
           location.latitude,
           location.longitude,
           location.timezone
-        );
+        )
+        : null;
       const { forecasts, pending, refreshSummary, completeness } = await fetchForecastsWithMetadata(
         location.latitude,
         location.longitude,
@@ -140,10 +150,13 @@ export function useWeather() {
         error: null,
         lastUpdated: Number.isFinite(runTime ?? NaN) ? new Date((runTime as number) * 1000) : null,
         refreshNotice,
-        syncProgress: prev.syncProgress
+        syncProgress: prev.syncProgress,
+        primaryLocation: getPrimaryLocation(),
+        isPrimary: isPrimaryLocation(location)
       }));
 
-      saveLocation(location);
+      // Update the store's active location
+      storeSetActive(location);
 
       const pendingIds = new Set(pending.map((item) => item.modelId));
       pendingRetryRef.current.forEach((timeoutId, modelId) => {
@@ -188,8 +201,17 @@ export function useWeather() {
     }
   }, []);
 
-  // Set location and fetch weather
+  // Set active location (for browsing) and fetch weather
   const setLocation = useCallback((location: Location) => {
+    storeSetActive(location);
+    fetchWeather(location, { userInitiated: true, refresh: false });
+  }, [fetchWeather]);
+
+  // Set primary location (the "weatherman assigned" location)
+  const setPrimaryLocation = useCallback((location: Location) => {
+    storeSetPrimary(location);
+    // Setting primary also updates active (handled by store)
+    // Fetch weather for the new primary
     fetchWeather(location, { userInitiated: true, refresh: false });
   }, [fetchWeather]);
 
@@ -200,10 +222,9 @@ export function useWeather() {
     }
   }, [state.location, state.isOffline, fetchWeather]);
 
-  // Initialize with saved location or default
+  // Initialize with location from store (already initialized with proper defaults)
   useEffect(() => {
-    const savedLocation = getSavedLocation();
-    const initialLocation = savedLocation || CANADIAN_CITIES[0]; // Default to Toronto
+    const initialLocation = getActiveLocation();
     fetchWeather(initialLocation);
   }, [fetchWeather]);
 
@@ -271,6 +292,7 @@ export function useWeather() {
   return {
     ...state,
     setLocation,
+    setPrimaryLocation,
     refresh
   };
 }
