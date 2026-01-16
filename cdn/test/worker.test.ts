@@ -209,11 +209,23 @@ test('worker serves /locations/<loc_key>/latest.json (manifest pointers only)', 
     expect(res.headers.get('Content-Type')).toBe('application/json; charset=utf-8');
     expect(res.headers.get('Cache-Control')).toBe('public, max-age=60');
 
-    const bodyText = await res.text();
-    expect(bodyText).not.toContain(artifactHash);
+    const body = (await res.json()) as any;
 
-    const body = JSON.parse(bodyText) as any;
+    expect(Object.keys(body).sort()).toEqual(['dates', 'loc_key']);
     expect(body.loc_key).toBe(locKey);
+
+    expect(Array.isArray(body.dates)).toBe(true);
+    expect(body.dates).toHaveLength(2);
+
+    for (const entry of body.dates) {
+        expect(Object.keys(entry).sort()).toEqual(['date', 'manifests']);
+        expect(entry.date).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+        expect(Array.isArray(entry.manifests)).toBe(true);
+        for (const hash of entry.manifests) {
+            expect(hash).toMatch(/^[a-f0-9]{64}$/i);
+        }
+    }
+
     expect(body.dates).toEqual([
         { date: latestDate, manifests: [packedA.hash] },
         { date: prevDate, manifests: [] }
@@ -232,5 +244,39 @@ test('worker /locations/<loc_key>/latest.json rejects invalid loc_key', async ()
 
     expect(res.status).toBe(400);
     expect(res.headers.get('Access-Control-Allow-Origin')).toBe('*');
+    expect(res.headers.get('Content-Type')).toBe('application/json; charset=utf-8');
     expect(await res.json()).toEqual({ error: 'INVALID_LOC_KEY' });
+});
+
+test('worker /locations/<loc_key>/latest.json returns CDN_UNAVAILABLE when root missing', async () => {
+    const bucket = new MockBucket();
+    const env = makeEnv(bucket);
+
+    const res = await worker.fetch(
+        new Request('https://cdn.test/locations/v1:44.6683,-65.7619/latest.json'),
+        env,
+        ctx
+    );
+
+    expect(res.status).toBe(503);
+    expect(res.headers.get('Access-Control-Allow-Origin')).toBe('*');
+    expect(res.headers.get('Content-Type')).toBe('application/json; charset=utf-8');
+    expect(await res.json()).toEqual({ error: 'CDN_UNAVAILABLE' });
+});
+
+test('worker /locations/<loc_key>/latest.json supports HEAD with CORS', async () => {
+    const bucket = new MockBucket();
+    const env = makeEnv(bucket);
+
+    await bucket.put('manifests/root.json', textBytes(JSON.stringify({ latest: '2026-01-02' })));
+
+    const res = await worker.fetch(
+        new Request('https://cdn.test/locations/v1:44.6683,-65.7619/latest.json', { method: 'HEAD' }),
+        env,
+        ctx
+    );
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get('Access-Control-Allow-Origin')).toBe('*');
+    expect(res.headers.get('Content-Type')).toBe('application/json; charset=utf-8');
 });

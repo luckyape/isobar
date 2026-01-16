@@ -122,6 +122,8 @@ For MVP or low-volume deployments, the Worker MAY derive the response dynamicall
 
 This strategy is intentionally simple and correctness-first.
 
+**Compatibility note:** Manifests published before `loc_key` was added to `ManifestEntry` will not match any location query until re-ingested (or backfilled). Clients should treat this endpoint as a hint and fall back to the global manifest scan when needed.
+
 ---
 
 #### Strategy B — Production / Optimized (Recommended)

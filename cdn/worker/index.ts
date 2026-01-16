@@ -245,14 +245,20 @@ export default {
                 return hashes;
             };
 
-            const dateMatches = async (date: string): Promise<string[]> => {
+            const dateMatches = async (
+                date: string
+            ): Promise<{ date: string; manifests: string[]; scanned: number; skipped: number }> => {
                 const hashes = await listManifestHashes(date);
                 const matches: string[] = [];
+                let skipped = 0;
 
                 for (const hash of hashes) {
                     const key = `manifests/${date}/${hash}`;
                     const object = await env.BUCKET.get(key);
-                    if (!object) continue;
+                    if (!object) {
+                        skipped += 1;
+                        continue;
+                    }
 
                     let blob: Uint8Array;
                     try {
@@ -263,6 +269,7 @@ export default {
                             hash,
                             error: (error as Error)?.message ?? String(error)
                         });
+                        skipped += 1;
                         continue;
                     }
 
@@ -274,6 +281,7 @@ export default {
                                 expected: hash,
                                 actual: contentHash
                             });
+                            skipped += 1;
                             continue;
                         }
 
@@ -287,15 +295,33 @@ export default {
                             hash,
                             error: (error as Error)?.message ?? String(error)
                         });
+                        skipped += 1;
                         continue;
                     }
                 }
 
-                return matches;
+                return { date, manifests: matches, scanned: hashes.length, skipped };
             };
 
-            const latestMatches = await dateMatches(latestDate);
-            const previousMatches = await dateMatches(previousDate);
+            const latestResult = await dateMatches(latestDate);
+            const previousResult = await dateMatches(previousDate);
+            console.log('[locations/latest] scan complete', {
+                loc_key: canonicalLocKey,
+                dates: [
+                    {
+                        date: latestResult.date,
+                        scanned: latestResult.scanned,
+                        skipped: latestResult.skipped,
+                        matches: latestResult.manifests.length
+                    },
+                    {
+                        date: previousResult.date,
+                        scanned: previousResult.scanned,
+                        skipped: previousResult.skipped,
+                        matches: previousResult.manifests.length
+                    }
+                ]
+            });
 
             if (request.method === 'HEAD') {
                 return emptyResponse({
@@ -311,8 +337,8 @@ export default {
                 {
                     loc_key: canonicalLocKey,
                     dates: [
-                        { date: latestDate, manifests: latestMatches },
-                        { date: previousDate, manifests: previousMatches }
+                        { date: latestDate, manifests: latestResult.manifests },
+                        { date: previousDate, manifests: previousResult.manifests }
                     ]
                 },
                 {
