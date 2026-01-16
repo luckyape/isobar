@@ -11,7 +11,7 @@ import { runIngest } from '../ingest/pipeline';
 import { R2Storage, type R2Bucket } from './r2-storage';
 import { getBlobContentHash } from '../artifact';
 import { unpackageManifest } from '../manifest';
-import { canonicalizeLocKey, isValidLocationScopeId } from '../location';
+import { canonicalizeLocKey, isValidLocationScopeId, computeLocationScopeId, normalizeLocationScope } from '../location';
 
 export interface Env {
     BUCKET: R2Bucket;
@@ -75,7 +75,7 @@ function jsonResponse(body: unknown, init: ResponseInitWithHeaders): Response {
     });
 }
 
-type LocationRouting = { scopeKeyPrefix: string; routePath: string };
+type LocationRouting = { scopeKeyPrefix: string; routePath: string; isExplicit: boolean };
 
 function parseLocationRouting(pathname: string): LocationRouting {
     // Supports both legacy global paths and location-scoped paths:
@@ -83,13 +83,13 @@ function parseLocationRouting(pathname: string): LocationRouting {
     //   /locations/<locId>/manifests/...       -> key: locations/<locId>/manifests/...
     const match = pathname.match(/^\/locations\/([a-f0-9]{64})(\/.*)$/);
     if (!match) {
-        return { scopeKeyPrefix: '', routePath: pathname };
+        return { scopeKeyPrefix: '', routePath: pathname, isExplicit: false };
     }
     const [, locId, rest] = match;
     if (!isValidLocationScopeId(locId)) {
-        return { scopeKeyPrefix: '', routePath: pathname };
+        return { scopeKeyPrefix: '', routePath: pathname, isExplicit: false };
     }
-    return { scopeKeyPrefix: `locations/${locId}`, routePath: rest };
+    return { scopeKeyPrefix: `locations/${locId}`, routePath: rest, isExplicit: true };
 }
 
 function keyFor(scopeKeyPrefix: string, key: string): string {
@@ -165,13 +165,39 @@ export default {
         _ctx: ExecutionContext
     ): Promise<Response> {
         const url = new URL(request.url);
-        const routing = parseLocationRouting(url.pathname);
-        const path = routing.routePath;
-        const scopeKeyPrefix = routing.scopeKeyPrefix;
+        let { scopeKeyPrefix, routePath: path, isExplicit } = parseLocationRouting(url.pathname);
+
+        // Precedence: explicit location > primary location (default)
+        // If no explicit location is provided, default to the primary location derived from Env.
+        if (!isExplicit) {
+            const primaryLat = parseFloat(env.INGEST_LATITUDE);
+            const primaryLon = parseFloat(env.INGEST_LONGITUDE);
+            const primaryTz = env.INGEST_TIMEZONE;
+
+            if (Number.isFinite(primaryLat) && Number.isFinite(primaryLon)) {
+                const primaryScopeId = computeLocationScopeId({
+                    latitude: primaryLat,
+                    longitude: primaryLon,
+                    timezone: primaryTz,
+                    decimals: 4 // Use default decimals for consistency with valid scope IDs
+                });
+                scopeKeyPrefix = `locations/${primaryScopeId}`;
+            }
+        }
+
+        // Add headers for observability
+        const effectiveLocationScope = scopeKeyPrefix ? scopeKeyPrefix.replace('locations/', '') : 'global';
+        const effectiveLocationSource = isExplicit ? 'explicit' : 'primary';
+
+        const addObservabilityHeaders = (res: Response): Response => {
+            res.headers.set('X-Weather-Location-Scope', effectiveLocationScope);
+            res.headers.set('X-Weather-Location-Source', effectiveLocationSource);
+            return res;
+        };
 
         // Handle preflight
         if (request.method === 'OPTIONS') {
-            return emptyResponse({ status: 204 });
+            return addObservabilityHeaders(emptyResponse({ status: 204 }));
         }
 
         if (request.method !== 'GET' && request.method !== 'HEAD') {
@@ -188,18 +214,18 @@ export default {
             try {
                 canonicalLocKey = canonicalizeLocKey(decodeURIComponent(locationLatestMatch[1]));
             } catch {
-                return jsonResponse(
+                return addObservabilityHeaders(jsonResponse(
                     { error: 'INVALID_LOC_KEY' },
                     { status: 400, headers: { 'Cache-Control': CACHE_ERROR } }
-                );
+                ));
             }
 
             const rootObject = await env.BUCKET.get('manifests/root.json');
             if (!rootObject) {
-                return jsonResponse(
+                return addObservabilityHeaders(jsonResponse(
                     { error: 'CDN_UNAVAILABLE' },
                     { status: 503, headers: { 'Cache-Control': CACHE_ERROR } }
-                );
+                ));
             }
 
             let latestDate: string;
@@ -211,18 +237,18 @@ export default {
                 }
                 latestDate = root.latest;
             } catch {
-                return jsonResponse(
+                return addObservabilityHeaders(jsonResponse(
                     { error: 'CDN_UNAVAILABLE' },
                     { status: 503, headers: { 'Cache-Control': CACHE_ERROR } }
-                );
+                ));
             }
 
             const previousDate = addUtcDays(latestDate, -1);
             if (!previousDate) {
-                return jsonResponse(
+                return addObservabilityHeaders(jsonResponse(
                     { error: 'CDN_UNAVAILABLE' },
                     { status: 503, headers: { 'Cache-Control': CACHE_ERROR } }
-                );
+                ));
             }
 
             const listManifestHashes = async (date: string): Promise<string[]> => {
@@ -324,16 +350,16 @@ export default {
             });
 
             if (request.method === 'HEAD') {
-                return emptyResponse({
+                return addObservabilityHeaders(emptyResponse({
                     status: 200,
                     headers: {
                         'Content-Type': 'application/json; charset=utf-8',
                         'Cache-Control': CACHE_ROOT
                     }
-                });
+                }));
             }
 
-            return jsonResponse(
+            return addObservabilityHeaders(jsonResponse(
                 {
                     loc_key: canonicalLocKey,
                     dates: [
@@ -345,17 +371,17 @@ export default {
                     status: 200,
                     headers: { 'Cache-Control': CACHE_ROOT }
                 }
-            );
+            ));
         }
 
         // Route: /manifests/root.json (mutable pointer)
         if (path === '/manifests/root.json') {
             const object = await env.BUCKET.get(keyFor(scopeKeyPrefix, 'manifests/root.json'));
             if (!object) {
-                return textResponse('Not found', { status: 404, headers: { 'Cache-Control': CACHE_ERROR } });
+                return addObservabilityHeaders(textResponse('Not found', { status: 404, headers: { 'Cache-Control': CACHE_ERROR } }));
             }
             const body = await object.arrayBuffer();
-            return new Response(body, {
+            return addObservabilityHeaders(new Response(body, {
                 headers: {
                     ...withHeaders({
                         'Content-Type': 'application/json; charset=utf-8',
@@ -363,7 +389,7 @@ export default {
                         'ETag': object.etag
                     })
                 }
-            });
+            }));
         }
 
         // Route: /manifests/:date/:hash
@@ -377,7 +403,7 @@ export default {
                 if (!object) {
                     return emptyResponse({ status: 404, headers: { 'Cache-Control': CACHE_ERROR } });
                 }
-                return emptyResponse({
+                return addObservabilityHeaders(emptyResponse({
                     status: 200,
                     headers: {
                         'Content-Type': 'application/octet-stream',
@@ -385,23 +411,23 @@ export default {
                         'ETag': object.etag,
                         'Content-Length': object.size.toString()
                     }
-                });
+                }));
             }
 
             const object = await env.BUCKET.get(key);
             if (!object) {
-                return textResponse('Not found', { status: 404, headers: { 'Cache-Control': CACHE_ERROR } });
+                return addObservabilityHeaders(textResponse('Not found', { status: 404, headers: { 'Cache-Control': CACHE_ERROR } }));
             }
 
             const body = await object.arrayBuffer();
-            return new Response(body, {
+            return addObservabilityHeaders(new Response(body, {
                 headers: withHeaders({
                     'Content-Type': 'application/octet-stream',
                     'Cache-Control': CACHE_IMMUTABLE,
                     'ETag': object.etag,
                     'Content-Length': object.size.toString()
                 })
-            });
+            }));
         }
 
         // Route: /chunks/:hash
@@ -415,7 +441,7 @@ export default {
                 if (!object) {
                     return emptyResponse({ status: 404, headers: { 'Cache-Control': CACHE_ERROR } });
                 }
-                return emptyResponse({
+                return addObservabilityHeaders(emptyResponse({
                     status: 200,
                     headers: {
                         'Content-Type': 'application/octet-stream',
@@ -423,23 +449,23 @@ export default {
                         'ETag': object.etag,
                         'Content-Length': object.size.toString()
                     }
-                });
+                }));
             }
 
             const object = await env.BUCKET.get(key);
             if (!object) {
-                return textResponse('Not found', { status: 404, headers: { 'Cache-Control': CACHE_ERROR } });
+                return addObservabilityHeaders(textResponse('Not found', { status: 404, headers: { 'Cache-Control': CACHE_ERROR } }));
             }
 
             const body = await object.arrayBuffer();
-            return new Response(body, {
+            return addObservabilityHeaders(new Response(body, {
                 headers: withHeaders({
                     'Content-Type': 'application/octet-stream',
                     'Cache-Control': CACHE_IMMUTABLE,
                     'ETag': object.etag,
                     'Content-Length': object.size.toString()
                 })
-            });
+            }));
         }
 
         // Route: /manifests/:date/ (list manifests for a date)
@@ -459,15 +485,15 @@ export default {
             } while (cursor);
 
             hashes.sort();
-            return new Response(JSON.stringify(hashes), {
+            return addObservabilityHeaders(new Response(JSON.stringify(hashes), {
                 headers: withHeaders({
                     'Content-Type': 'application/json; charset=utf-8',
                     'Cache-Control': CACHE_LIST
                 })
-            });
+            }));
         }
 
         // 404 for unknown routes
-        return textResponse('Not found', { status: 404, headers: { 'Cache-Control': CACHE_ERROR } });
+        return addObservabilityHeaders(textResponse('Not found', { status: 404, headers: { 'Cache-Control': CACHE_ERROR } }));
     }
 };
