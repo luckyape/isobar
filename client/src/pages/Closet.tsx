@@ -1,6 +1,17 @@
-import { useEffect, useMemo, useState } from "react";
+/**
+ * Closet Dashboard Page — Local offline corpus health, coverage, and signals
+ * 
+ * Implements a layered depth model for progressive disclosure:
+ * - Layer 0: Human-readable assertions
+ * - Layer 1: Inline explanations ("Why?")
+ * - Layer 2: Detailed data view
+ * - Layer 3: Full JSON export
+ * 
+ * No destructive actions; ops are in /ops/closet.
+ */
+
+import { useEffect, useMemo, useState, useCallback } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -8,14 +19,65 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
-import { Braces, Copy, ExternalLink, RefreshCw } from "lucide-react";
+import { Braces, Copy, ExternalLink, RefreshCw, Database, Archive, AlertTriangle, X } from "lucide-react";
 
 import { computeOpsSnapshot, getDefaultClosetPolicy, isTrustedMode, type OpsConfig, type OpsSnapshot } from "@/lib/closet/ops";
 import { getClosetDB, type ForecastIndexEntry, type ObservationIndexEntry } from "@/lib/closet";
+import { ClosetSection, TrustSection, ActivitySection, type TrustData, type ActivityData } from "@/components/closet";
+import { useClosetUrlState, toggleSection } from "@/hooks/useClosetUrlState";
+import { cn } from "@/lib/utils";
+
+// =============================================================================
+// Types
+// =============================================================================
 
 type ExportLevel = "summary" | "full";
-
 type Platform = "web" | "ios" | "android";
+
+type ClosetDashboardSnapshot = {
+  version: "closet_dashboard_v1";
+  generatedAt: string;
+  exportLevel: ExportLevel;
+  environment: {
+    platform: Platform;
+    client_version: string;
+    storage_quota_tier: "unknown" | "low" | "medium" | "high";
+    storage_estimate: { quotaBytes: number | null; usageBytes: number | null };
+  };
+  privacy: {
+    redactionApplied: boolean;
+  };
+  config: OpsConfig;
+  ops: OpsSnapshot;
+  derived: {
+    inflightCount: number;
+    obsIndexCount: number;
+    forecastIndexCount: number;
+    observationSources: Array<{ key: string; count: number }>;
+    forecastModels: Array<{ key: string; count: number }>;
+    newestObservationBucket: string | null;
+    newestObservationAgeMs: number | null;
+    newestForecastRunTime: string | null;
+  };
+  // New fields for layered depth model
+  trust: TrustData;
+  activity: ActivityData;
+  assertions: {
+    coverage: string;
+    storage: string;
+    activity: string;
+    trust: string;
+  };
+  raw?: {
+    observationIndexEntries: ObservationIndexEntry[];
+    forecastIndexEntries: ForecastIndexEntry[];
+    inflight: Array<{ hash: string; startedAtMs: number }>;
+  };
+};
+
+// =============================================================================
+// Helpers
+// =============================================================================
 
 function formatBytes(bytes: number): string {
   if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
@@ -73,9 +135,6 @@ function computeHistogram<T>(items: T[], toKey: (item: T) => string): Array<{ ke
 
 function computeMinuteKey(isoLike: string): string | null {
   if (typeof isoLike !== "string") return null;
-  // Supported shapes:
-  // - "YYYY-MM-DDTHH:mm" (preferred)
-  // - "YYYY-MM-DDTHH:mm:ssZ" (fallback)
   if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(isoLike)) return isoLike;
   const m = isoLike.match(/^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2})/);
   return m?.[1] ?? null;
@@ -107,8 +166,8 @@ async function getStorageEstimate(): Promise<{ quotaBytes: number | null; usageB
 
 function computeStorageQuotaTier(quotaBytes: number | null): "unknown" | "low" | "medium" | "high" {
   if (!Number.isFinite(quotaBytes ?? NaN)) return "unknown";
-  if ((quotaBytes as number) < 250 * 1024 * 1024) return "low"; // < 250MB
-  if ((quotaBytes as number) < 2 * 1024 * 1024 * 1024) return "medium"; // < 2GB
+  if ((quotaBytes as number) < 250 * 1024 * 1024) return "low";
+  if ((quotaBytes as number) < 2 * 1024 * 1024 * 1024) return "medium";
   return "high";
 }
 
@@ -118,7 +177,6 @@ function nowIso(): string {
 
 function isSensitiveKeyName(key: string): boolean {
   const k = key.toLowerCase();
-  // Intentionally NOT redacting "pubKey"/"publicKey" because those are expected to be shareable.
   if (k.includes("public")) return false;
   if (k.includes("pubkey")) return false;
   return (
@@ -159,37 +217,82 @@ function sanitizeObject(value: unknown): { value: unknown; redacted: boolean } {
   return { value: out, redacted };
 }
 
-type ClosetDashboardSnapshot = {
-  version: "closet_dashboard_v1";
-  generatedAt: string;
-  exportLevel: ExportLevel;
-  environment: {
-    platform: Platform;
-    client_version: string;
-    storage_quota_tier: "unknown" | "low" | "medium" | "high";
-    storage_estimate: { quotaBytes: number | null; usageBytes: number | null };
+// =============================================================================
+// Assertion Generators
+// =============================================================================
+
+function computeCoverageAssertion(
+  obsCount: number,
+  forecastCount: number,
+  newestObsAgeMs: number | null
+): string {
+  if (obsCount === 0 && forecastCount === 0) return "No data stored yet";
+  if (obsCount === 0) return "Observations missing";
+  if (forecastCount === 0) return "Forecasts missing";
+
+  // Check freshness (data older than 6 hours is stale)
+  if (newestObsAgeMs !== null && newestObsAgeMs > 6 * 60 * 60 * 1000) {
+    return "Coverage is stale";
+  }
+
+  return "You're covered";
+}
+
+function computeStorageAssertion(
+  usedBytes: number,
+  quotaBytes: number,
+  headroomBytes: number
+): string {
+  if (usedBytes === 0) return "Storage empty";
+
+  const usageRatio = usedBytes / quotaBytes;
+  if (usageRatio > 0.9) return "Near quota limit";
+  if (usageRatio > 0.7) return "Running low on space";
+  if (headroomBytes < 50 * 1024 * 1024) return "Limited headroom";
+
+  return "Storage is healthy";
+}
+
+function computeTrustData(config: OpsConfig): TrustData {
+  const isTrusted = isTrustedMode(config);
+
+  let whyNotTrusted: string | null = null;
+  if (!isTrusted) {
+    if (config.trustMode !== "trusted") {
+      whyNotTrusted = "Trust mode is set to 'unverified'. Switch to 'trusted' mode to enable destructive operations.";
+    } else if (!config.expectedManifestPubKeyHex) {
+      whyNotTrusted = "No expected manifest public key configured. Provide a pubkey to verify manifest signatures.";
+    }
+  }
+
+  return {
+    mode: config.trustMode,
+    isTrusted,
+    whyNotTrusted,
+    manifestSignatureStatus: "unchecked", // Could be derived from verification receipts
+    destructiveOpsEnabled: isTrusted,
+    expectedPubKeyHex: config.expectedManifestPubKeyHex
   };
-  privacy: {
-    redactionApplied: boolean;
+}
+
+function computeActivityData(
+  inflight: Array<{ hash: string; startedAtMs: number }>,
+  lastGcAt: number
+): ActivityData {
+  const nowMs = Date.now();
+  return {
+    inflightDownloads: inflight.map((item) => ({
+      ...item,
+      ageMs: Math.max(0, nowMs - item.startedAtMs)
+    })),
+    lastGcAt,
+    lastGcAgeMs: lastGcAt > 0 ? Math.max(0, nowMs - lastGcAt) : 0
   };
-  config: OpsConfig;
-  ops: OpsSnapshot;
-  derived: {
-    inflightCount: number;
-    obsIndexCount: number;
-    forecastIndexCount: number;
-    observationSources: Array<{ key: string; count: number }>;
-    forecastModels: Array<{ key: string; count: number }>;
-    newestObservationBucket: string | null;
-    newestObservationAgeMs: number | null;
-    newestForecastRunTime: string | null;
-  };
-  raw?: {
-    observationIndexEntries: ObservationIndexEntry[];
-    forecastIndexEntries: ForecastIndexEntry[];
-    inflight: Array<{ hash: string; startedAtMs: number }>;
-  };
-};
+}
+
+// =============================================================================
+// Snapshot Computation
+// =============================================================================
 
 async function computeClosetDashboardSnapshot(
   config: OpsConfig,
@@ -236,6 +339,22 @@ async function computeClosetDashboardSnapshot(
   const platform = detectPlatform();
   const storageQuotaTier = computeStorageQuotaTier(storageEstimate.quotaBytes);
 
+  // Compute new structured data
+  const trust = computeTrustData(config);
+  const activity = computeActivityData(inflight, ops.lastGcAt);
+
+  // Compute Layer 0 assertions
+  const assertions = {
+    coverage: computeCoverageAssertion(obsIndexCount, forecastIndexCount, newestObservationAgeMs),
+    storage: computeStorageAssertion(ops.totalBytesPresent, ops.quotaBytes, ops.headroomBytes),
+    activity: activity.inflightDownloads.length > 0
+      ? `Syncing ${activity.inflightDownloads.length} item${activity.inflightDownloads.length === 1 ? "" : "s"}`
+      : ops.lastGcAt > 0
+        ? `Last sync ${formatAgeFromMs(activity.lastGcAgeMs)}`
+        : "All quiet",
+    trust: trust.isTrusted ? "Verified and trusted" : "Unverified mode"
+  };
+
   const snapshot: ClosetDashboardSnapshot = {
     version: "closet_dashboard_v1",
     generatedAt: nowIso(),
@@ -258,7 +377,10 @@ async function computeClosetDashboardSnapshot(
       newestObservationBucket,
       newestObservationAgeMs,
       newestForecastRunTime
-    }
+    },
+    trust,
+    activity,
+    assertions
   };
 
   if (exportLevel === "full") {
@@ -273,9 +395,35 @@ async function computeClosetDashboardSnapshot(
   return snapshot;
 }
 
+// =============================================================================
+// Section Status Derivers
+// =============================================================================
+
+function getCoverageStatus(snapshot: ClosetDashboardSnapshot): "healthy" | "warning" | "error" | "neutral" {
+  const { obsIndexCount, forecastIndexCount, newestObservationAgeMs } = snapshot.derived;
+  if (obsIndexCount === 0 && forecastIndexCount === 0) return "neutral";
+  if (obsIndexCount === 0 || forecastIndexCount === 0) return "warning";
+  if (newestObservationAgeMs !== null && newestObservationAgeMs > 6 * 60 * 60 * 1000) return "warning";
+  return "healthy";
+}
+
+function getStorageStatus(snapshot: ClosetDashboardSnapshot): "healthy" | "warning" | "error" | "neutral" {
+  const { totalBytesPresent, quotaBytes, headroomBytes } = snapshot.ops;
+  if (totalBytesPresent === 0) return "neutral";
+  const ratio = totalBytesPresent / quotaBytes;
+  if (ratio > 0.9) return "error";
+  if (ratio > 0.7 || headroomBytes < 50 * 1024 * 1024) return "warning";
+  return "healthy";
+}
+
+// =============================================================================
+// Component
+// =============================================================================
+
 export default function ClosetDashboardPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [jsonDrawerOpen, setJsonDrawerOpen] = useState(false);
 
   const [config, setConfig] = useState<OpsConfig>({
     trustMode: "unverified",
@@ -287,9 +435,12 @@ export default function ClosetDashboardPage() {
   const [listLimit, setListLimit] = useState(5000);
   const [snapshot, setSnapshot] = useState<ClosetDashboardSnapshot | null>(null);
 
+  // URL state for section expansion
+  const [urlState, setUrlState] = useClosetUrlState();
+
   const isTrusted = isTrustedMode(config);
 
-  const refresh = async () => {
+  const refresh = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
@@ -300,15 +451,22 @@ export default function ClosetDashboardPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [config, exportLevel, listLimit]);
 
   useEffect(() => {
     refresh();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [refresh]);
+
+  // Sync JSON drawer with URL state
+  useEffect(() => {
+    if (urlState.jsonOpen !== jsonDrawerOpen) {
+      setJsonDrawerOpen(urlState.jsonOpen);
+    }
+  }, [urlState.jsonOpen, jsonDrawerOpen]);
 
   const assistantJson = useMemo(() => (snapshot ? safeJsonStringify(snapshot, 2) : ""), [snapshot]);
   const assistantJsonBytes = useMemo(() => new TextEncoder().encode(assistantJson).length, [assistantJson]);
+  const isLargeExport = assistantJsonBytes > 1024 * 1024; // > 1MB
 
   const copyAssistantJson = async () => {
     try {
@@ -319,329 +477,309 @@ export default function ClosetDashboardPage() {
     }
   };
 
-  return (
-    <div className="min-h-screen bg-background px-6 py-10">
-      <div className="mx-auto w-full max-w-6xl">
-        <div className="mb-8 flex flex-col items-center text-center">
-          <div className="mb-2 flex items-center gap-3">
-            <h1 className="text-3xl font-semibold tracking-tight">Closet</h1>
-            <Badge variant={isTrusted ? "default" : "secondary"}>{isTrusted ? "Trusted" : "Unverified"}</Badge>
-          </div>
-          <p className="max-w-2xl text-sm text-muted-foreground">
-            Local offline corpus health, coverage, and retention signals — with a copy/paste JSON export for assistants.
-          </p>
-          <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
-            <Button onClick={refresh} disabled={loading} className="gap-2">
-              <RefreshCw className="h-4 w-4" />
-              {loading ? "Refreshing…" : "Refresh"}
-            </Button>
-            <Button
-              variant="outline"
-              className="gap-2"
-              onClick={() => window.open("/ops/closet", "_blank", "noopener,noreferrer")}
-            >
-              <ExternalLink className="h-4 w-4" />
-              Open Ops
-            </Button>
-          </div>
-          {error && <div className="mt-3 text-sm text-destructive">{error}</div>}
-        </div>
+  const toggleJsonDrawer = () => {
+    const newState = !jsonDrawerOpen;
+    setJsonDrawerOpen(newState);
+    setUrlState({ jsonOpen: newState });
+  };
 
-        {!snapshot ? (
-          <Card>
-            <CardHeader>
-              <CardTitle>Loading…</CardTitle>
-              <CardDescription>Building Closet snapshot.</CardDescription>
-            </CardHeader>
-          </Card>
-        ) : (
-          <>
-            <div className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-3">
-              <Card>
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-sm font-medium">Storage</CardTitle>
-                  <CardDescription>Bytes present vs quota</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-semibold">{formatBytes(snapshot.ops.totalBytesPresent)}</div>
-                  <div className="mt-1 text-xs text-muted-foreground">
-                    {snapshot.ops.presentBlobsCount} blobs • {snapshot.ops.pinnedBlobsCount} pinned •{" "}
-                    {snapshot.derived.inflightCount} inflight
+  const handleSectionToggle = (sectionId: string) => (expanded: boolean) => {
+    const next = new Set(urlState.expandedSections);
+    if (expanded) {
+      next.add(sectionId);
+    } else {
+      next.delete(sectionId);
+    }
+    setUrlState({ expandedSections: next });
+  };
+
+  return (
+    <div className="min-h-screen bg-background">
+      {/* Header */}
+      <div className="border-b bg-card/50 px-6 py-6">
+        <div className="mx-auto max-w-6xl">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <div className="flex items-center gap-3">
+                <h1 className="text-2xl font-semibold tracking-tight">Closet</h1>
+                <Badge variant={isTrusted ? "default" : "secondary"}>
+                  {isTrusted ? "Trusted" : "Unverified"}
+                </Badge>
+              </div>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Your local offline data — what's stored, what's fresh, and what's working for you.
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button onClick={refresh} disabled={loading} size="sm" className="gap-2">
+                <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />
+                {loading ? "Refreshing…" : "Refresh"}
+              </Button>
+              <Button variant="outline" size="sm" className="gap-2" onClick={toggleJsonDrawer}>
+                <Braces className="h-4 w-4" />
+                Export JSON
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="gap-2"
+                onClick={() => window.open("/ops/closet", "_blank", "noopener,noreferrer")}
+              >
+                <ExternalLink className="h-4 w-4" />
+                Ops
+              </Button>
+            </div>
+          </div>
+          {error && (
+            <div className="mt-3 flex items-center gap-2 text-sm text-destructive">
+              <AlertTriangle className="h-4 w-4" />
+              {error}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Main Content */}
+      <div className="px-6 py-8">
+        <div className="mx-auto max-w-6xl">
+          {!snapshot ? (
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Database className="h-5 w-5 animate-pulse" />
+                  Loading Closet…
+                </CardTitle>
+                <CardDescription>Building snapshot of your local data.</CardDescription>
+              </CardHeader>
+            </Card>
+          ) : (
+            <div className="grid gap-4 lg:grid-cols-2">
+              {/* Coverage Section */}
+              <ClosetSection
+                id="coverage"
+                title="Coverage"
+                assertion={snapshot.assertions.coverage}
+                status={getCoverageStatus(snapshot)}
+                isExpanded={urlState.expandedSections.has("coverage")}
+                onExpandChange={handleSectionToggle("coverage")}
+                compactContent={
+                  <div className="flex items-center gap-4 text-sm text-muted-foreground">
+                    <span>{snapshot.derived.obsIndexCount} observations</span>
+                    <span>{snapshot.derived.forecastIndexCount} forecasts</span>
                   </div>
-                  <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-secondary">
-                    <div
-                      className="h-full bg-primary transition-all"
-                      style={{
-                        width: `${Math.min(100, (snapshot.ops.totalBytesPresent / snapshot.ops.quotaBytes) * 100)}%`
-                      }}
+                }
+              >
+                <div className="space-y-4 text-sm">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <div className="text-muted-foreground mb-1">Observation Index</div>
+                      <div className="text-lg font-mono">{snapshot.derived.obsIndexCount}</div>
+                      <div className="text-xs text-muted-foreground">
+                        Newest: {snapshot.derived.newestObservationBucket ?? "—"}
+                      </div>
+                      <div className="text-xs text-muted-foreground">
+                        Age: {snapshot.derived.newestObservationAgeMs !== null
+                          ? formatAgeFromMs(snapshot.derived.newestObservationAgeMs)
+                          : "—"}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-muted-foreground mb-1">Forecast Index</div>
+                      <div className="text-lg font-mono">{snapshot.derived.forecastIndexCount}</div>
+                      <div className="text-xs text-muted-foreground">
+                        Newest run: {snapshot.derived.newestForecastRunTime ?? "—"}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="p-3 rounded-md bg-secondary/30">
+                    <div className="text-xs text-muted-foreground mb-1">
+                      Freshness threshold: Data older than 6 hours is considered stale.
+                    </div>
+                  </div>
+
+                  {snapshot.derived.observationSources.length > 0 && (
+                    <div>
+                      <div className="text-muted-foreground mb-2">Top sources</div>
+                      <div className="space-y-1">
+                        {snapshot.derived.observationSources.slice(0, 4).map((s) => (
+                          <div key={s.key} className="flex justify-between text-xs">
+                            <span className="font-mono">{s.key}</span>
+                            <span className="text-muted-foreground">{s.count}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </ClosetSection>
+
+              {/* Storage Section */}
+              <ClosetSection
+                id="storage"
+                title="Storage"
+                assertion={snapshot.assertions.storage}
+                status={getStorageStatus(snapshot)}
+                isExpanded={urlState.expandedSections.has("storage")}
+                onExpandChange={handleSectionToggle("storage")}
+                compactContent={
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="font-mono">{formatBytes(snapshot.ops.totalBytesPresent)}</span>
+                      <span className="text-muted-foreground">of {formatBytes(snapshot.ops.quotaBytes)}</span>
+                    </div>
+                    <div className="h-2 w-full overflow-hidden rounded-full bg-secondary">
+                      <div
+                        className="h-full bg-primary transition-all"
+                        style={{
+                          width: `${Math.min(100, (snapshot.ops.totalBytesPresent / snapshot.ops.quotaBytes) * 100)}%`
+                        }}
+                      />
+                    </div>
+                  </div>
+                }
+              >
+                <div className="space-y-4 text-sm">
+                  <div className="grid grid-cols-3 gap-4">
+                    <div>
+                      <div className="text-muted-foreground mb-1">Blobs</div>
+                      <div className="text-lg font-mono">{snapshot.ops.presentBlobsCount}</div>
+                    </div>
+                    <div>
+                      <div className="text-muted-foreground mb-1">Pinned</div>
+                      <div className="text-lg font-mono">{snapshot.ops.pinnedBlobsCount}</div>
+                    </div>
+                    <div>
+                      <div className="text-muted-foreground mb-1">Headroom</div>
+                      <div className="text-lg font-mono">{formatBytes(snapshot.ops.headroomBytes)}</div>
+                    </div>
+                  </div>
+
+                  <div className="p-3 rounded-md bg-secondary/30">
+                    <div className="text-xs text-muted-foreground">
+                      Quota tier: <span className="font-mono">{snapshot.environment.storage_quota_tier}</span>.
+                      {" "}Healthy threshold: &lt;70% usage with &gt;50MB headroom.
+                    </div>
+                  </div>
+
+                  {snapshot.ops.topBlobsBySize.length > 0 && (
+                    <div>
+                      <div className="text-muted-foreground mb-2">Largest blobs</div>
+                      <div className="space-y-1">
+                        {snapshot.ops.topBlobsBySize.slice(0, 4).map((b) => (
+                          <div key={b.hash} className="flex justify-between text-xs">
+                            <span className="font-mono">{shortHash(b.hash)}</span>
+                            <span className="text-muted-foreground">{formatBytes(b.sizeBytes)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </ClosetSection>
+
+              {/* Activity Section */}
+              <ActivitySection
+                data={snapshot.activity}
+                isExpanded={urlState.expandedSections.has("activity")}
+                onExpandChange={handleSectionToggle("activity")}
+              />
+
+              {/* Trust Section */}
+              <TrustSection
+                data={snapshot.trust}
+                isExpanded={urlState.expandedSections.has("trust")}
+                onExpandChange={handleSectionToggle("trust")}
+              />
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* JSON Drawer (Layer 3) */}
+      {jsonDrawerOpen && (
+        <div className="fixed inset-0 z-50 bg-background/80 backdrop-blur-sm" onClick={toggleJsonDrawer}>
+          <div
+            className="fixed right-0 top-0 h-full w-full max-w-3xl border-l bg-background shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex h-full flex-col">
+              <div className="flex items-center justify-between border-b px-6 py-4">
+                <div>
+                  <h2 className="text-lg font-semibold flex items-center gap-2">
+                    <Braces className="h-5 w-5" />
+                    Assistant JSON Export
+                  </h2>
+                  <p className="text-sm text-muted-foreground">
+                    Copy/paste into a support thread
+                  </p>
+                </div>
+                <Button variant="ghost" size="icon" onClick={toggleJsonDrawer}>
+                  <X className="h-5 w-5" />
+                  <span className="sr-only">Close</span>
+                </Button>
+              </div>
+
+              <div className="border-b px-6 py-3">
+                {isLargeExport && (
+                  <div className="mb-3 flex items-center gap-2 text-sm text-amber-500">
+                    <AlertTriangle className="h-4 w-4" />
+                    Export is large ({formatBytes(assistantJsonBytes)}). Consider using Summary mode.
+                  </div>
+                )}
+                <div className="flex flex-wrap items-center gap-3">
+                  <div className="flex items-center gap-2">
+                    <Label htmlFor="exportLevel" className="text-sm">Mode</Label>
+                    <select
+                      id="exportLevel"
+                      className="rounded-md border bg-transparent px-2 py-1 text-sm"
+                      value={exportLevel}
+                      onChange={(e) => setExportLevel(e.target.value as ExportLevel)}
+                    >
+                      <option value="full">Full</option>
+                      <option value="summary">Summary</option>
+                    </select>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Label htmlFor="listLimit" className="text-sm">List limit</Label>
+                    <Input
+                      id="listLimit"
+                      type="number"
+                      inputMode="numeric"
+                      className="w-24 h-8 text-sm"
+                      value={listLimit}
+                      min={0}
+                      max={50000}
+                      onChange={(e) => setListLimit(Number(e.target.value))}
                     />
                   </div>
-                  <div className="mt-2 text-xs text-muted-foreground">
-                    Quota {formatBytes(snapshot.ops.quotaBytes)} • Headroom {formatBytes(snapshot.ops.headroomBytes)}
-                  </div>
-                </CardContent>
-              </Card>
+                  <Button variant="outline" size="sm" onClick={refresh} disabled={loading}>
+                    <RefreshCw className={cn("h-4 w-4 mr-1", loading && "animate-spin")} />
+                    Rebuild
+                  </Button>
+                  <Button size="sm" onClick={copyAssistantJson} disabled={!assistantJson}>
+                    <Copy className="h-4 w-4 mr-1" />
+                    Copy ({formatBytes(assistantJsonBytes)})
+                  </Button>
+                </div>
+                <div className="mt-2 text-xs text-muted-foreground">
+                  Privacy: sensitive keys are redacted. Public keys are included.
+                </div>
+              </div>
 
-              <Card>
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-sm font-medium">Coverage</CardTitle>
-                  <CardDescription>Indexed local signal</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <div className="text-2xl font-semibold">{snapshot.derived.obsIndexCount}</div>
-                      <div className="text-xs text-muted-foreground">Obs index entries</div>
-                    </div>
-                    <div>
-                      <div className="text-2xl font-semibold">{snapshot.derived.forecastIndexCount}</div>
-                      <div className="text-xs text-muted-foreground">Forecast index entries</div>
-                    </div>
-                  </div>
-                  <div className="mt-3 text-xs text-muted-foreground">
-                    Newest obs bucket: <span className="font-mono">{snapshot.derived.newestObservationBucket ?? "—"}</span>
-                  </div>
-                  <div className="mt-1 text-xs text-muted-foreground">
-                    Latest obs:{" "}
-                    <span className="font-mono">
-                      {snapshot.derived.newestObservationAgeMs === null
-                        ? "—"
-                        : formatAgeFromMs(snapshot.derived.newestObservationAgeMs)}
-                    </span>
-                  </div>
-                  <div className="mt-1 text-xs text-muted-foreground">
-                    Newest forecast run: <span className="font-mono">{snapshot.derived.newestForecastRunTime ?? "—"}</span>
-                  </div>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-sm font-medium">Retention</CardTitle>
-                  <CardDescription>Discovery window + GC cadence</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-semibold">{snapshot.ops.manifestsInWindowCount}</div>
-                  <div className="text-xs text-muted-foreground">
-                    manifests in window • {snapshot.ops.manifestRefsCount} total refs
-                  </div>
-                  <div className="mt-3 text-xs text-muted-foreground">
-                    Window {snapshot.ops.policy.windowDays}d • Obs {snapshot.ops.policy.keepObservationDays}d • Forecast{" "}
-                    {snapshot.ops.policy.keepForecastRunsDays}d
-                  </div>
-                  <div className="mt-1 text-xs text-muted-foreground">
-                    Last GC: {formatDate(snapshot.ops.lastGcAt)}
-                  </div>
-                </CardContent>
-              </Card>
+              <ScrollArea className="flex-1">
+                <div className="p-6">
+                  <Textarea
+                    readOnly
+                    value={assistantJson}
+                    className="min-h-[600px] font-mono text-xs"
+                  />
+                </div>
+              </ScrollArea>
             </div>
-
-            <Tabs defaultValue="dashboard" className="space-y-4">
-              <TabsList>
-                <TabsTrigger value="dashboard">Dashboard</TabsTrigger>
-                <TabsTrigger value="assistant">Assistant JSON</TabsTrigger>
-                <TabsTrigger value="config">Config</TabsTrigger>
-              </TabsList>
-
-              <TabsContent value="dashboard" className="space-y-4">
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Signals</CardTitle>
-                    <CardDescription>Quick read of what’s piling up locally.</CardDescription>
-                  </CardHeader>
-                  <CardContent className="grid grid-cols-1 gap-6 md:grid-cols-2">
-                    <div>
-                      <div className="mb-2 text-sm font-medium">Top observation sources</div>
-                      <div className="space-y-2">
-                        {snapshot.derived.observationSources.length === 0 ? (
-                          <div className="text-sm text-muted-foreground">No observation index entries yet.</div>
-                        ) : (
-                          snapshot.derived.observationSources.map((row) => (
-                            <div key={row.key} className="flex items-center justify-between text-sm">
-                              <span className="font-mono">{row.key}</span>
-                              <span className="text-muted-foreground">{row.count}</span>
-                            </div>
-                          ))
-                        )}
-                      </div>
-                    </div>
-
-                    <div>
-                      <div className="mb-2 text-sm font-medium">Top forecast models</div>
-                      <div className="space-y-2">
-                        {snapshot.derived.forecastModels.length === 0 ? (
-                          <div className="text-sm text-muted-foreground">No forecast index entries yet.</div>
-                        ) : (
-                          snapshot.derived.forecastModels.map((row) => (
-                            <div key={row.key} className="flex items-center justify-between text-sm">
-                              <span className="font-mono">{row.key}</span>
-                              <span className="text-muted-foreground">{row.count}</span>
-                            </div>
-                          ))
-                        )}
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Largest blobs</CardTitle>
-                    <CardDescription>These dominate space; useful for diagnosing quota pressure.</CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-2">
-                    {snapshot.ops.topBlobsBySize.length === 0 ? (
-                      <div className="text-sm text-muted-foreground">No blobs tracked yet.</div>
-                    ) : (
-                      snapshot.ops.topBlobsBySize.slice(0, 12).map((b) => (
-                        <div key={b.hash} className="flex items-center justify-between gap-3 text-sm">
-                          <div className="min-w-0">
-                            <div className="truncate font-mono">{shortHash(b.hash)}</div>
-                            <div className="text-xs text-muted-foreground">
-                              lastAccess {formatDate(b.lastAccess)} • pinned {b.pinned ? "yes" : "no"}
-                            </div>
-                          </div>
-                          <div className="shrink-0 font-mono text-muted-foreground">{formatBytes(b.sizeBytes)}</div>
-                        </div>
-                      ))
-                    )}
-                  </CardContent>
-                </Card>
-              </TabsContent>
-
-              <TabsContent value="assistant" className="space-y-4">
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                      <Braces className="h-4 w-4" />
-                      Assistant JSON Export
-                    </CardTitle>
-                    <CardDescription>
-                      Copy/paste into a support thread. Includes ops snapshot + index summaries (and optionally raw index entries).
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-3">
-                    <div className="text-xs text-muted-foreground">
-                      Privacy: common secret-like keys (token/authorization/cookie/password) are redacted if they appear in config.
-                    </div>
-                    <div className="flex flex-wrap items-end gap-3">
-                      <div className="flex items-center gap-2">
-                        <Label htmlFor="exportLevel">Export</Label>
-                        <select
-                          id="exportLevel"
-                          className="rounded-md border bg-transparent px-2 py-1 text-sm"
-                          value={exportLevel}
-                          onChange={(e) => setExportLevel(e.target.value as ExportLevel)}
-                        >
-                          <option value="full">Full</option>
-                          <option value="summary">Summary</option>
-                        </select>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <Label htmlFor="listLimit">List limit</Label>
-                        <Input
-                          id="listLimit"
-                          type="number"
-                          inputMode="numeric"
-                          className="w-28"
-                          value={listLimit}
-                          min={0}
-                          max={50000}
-                          onChange={(e) => setListLimit(Number(e.target.value))}
-                        />
-                      </div>
-                      <Button variant="outline" className="gap-2" onClick={refresh} disabled={loading}>
-                        <RefreshCw className="h-4 w-4" />
-                        Rebuild
-                      </Button>
-                      <Button className="gap-2" onClick={copyAssistantJson} disabled={!assistantJson}>
-                        <Copy className="h-4 w-4" />
-                        Copy ({formatBytes(assistantJsonBytes)})
-                      </Button>
-                    </div>
-
-                    <div className="rounded-md border">
-                      <ScrollArea className="h-[520px]">
-                        <div className="p-3">
-                          <Textarea readOnly value={assistantJson} className="min-h-[500px] font-mono text-xs" />
-                        </div>
-                      </ScrollArea>
-                    </div>
-                  </CardContent>
-                </Card>
-              </TabsContent>
-
-              <TabsContent value="config" className="space-y-4">
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Runtime configuration</CardTitle>
-                    <CardDescription>Trusted mode enables destructive maintenance operations in Ops.</CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    <div className="flex flex-col gap-2 md:flex-row md:items-center md:gap-6">
-                      <div className="flex items-center gap-3">
-                        <Label htmlFor="trustMode">Trust mode</Label>
-                        <select
-                          id="trustMode"
-                          className="rounded-md border bg-transparent px-2 py-1 text-sm"
-                          value={config.trustMode}
-                          onChange={(e) => setConfig({ ...config, trustMode: e.target.value as OpsConfig["trustMode"] })}
-                        >
-                          <option value="unverified">Unverified</option>
-                          <option value="trusted">Trusted</option>
-                        </select>
-                      </div>
-                      <div className="flex-1">
-                        <Label htmlFor="pubkey">Expected manifest pubkey (hex)</Label>
-                        <Input
-                          id="pubkey"
-                          value={config.expectedManifestPubKeyHex ?? ""}
-                          placeholder="64-byte hex public key"
-                          onChange={(e) =>
-                            setConfig({
-                              ...config,
-                              expectedManifestPubKeyHex: e.target.value.trim() || undefined
-                            })
-                          }
-                        />
-                        <div className="mt-1 text-xs text-muted-foreground">
-                          Current: {isTrusted ? "trusted-ready" : "missing pubkey or unverified"}
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="rounded-md border p-3 text-sm">
-                      <div className="font-medium">Policy</div>
-                      <div className="mt-2 grid grid-cols-2 gap-2 md:grid-cols-4">
-                        <div>
-                          <div className="text-xs text-muted-foreground">Quota</div>
-                          <div className="font-mono">{formatBytes(config.policy.quotaBytes)}</div>
-                        </div>
-                        <div>
-                          <div className="text-xs text-muted-foreground">Window</div>
-                          <div className="font-mono">{config.policy.windowDays}d</div>
-                        </div>
-                        <div>
-                          <div className="text-xs text-muted-foreground">Obs retain</div>
-                          <div className="font-mono">{config.policy.keepObservationDays}d</div>
-                        </div>
-                        <div>
-                          <div className="text-xs text-muted-foreground">Forecast retain</div>
-                          <div className="font-mono">{config.policy.keepForecastRunsDays}d</div>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="text-xs text-muted-foreground">
-                      Note: This page is read-only. Destructive actions live in <span className="font-mono">/ops/closet</span>.
-                    </div>
-                  </CardContent>
-                </Card>
-              </TabsContent>
-            </Tabs>
-          </>
-        )}
-      </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

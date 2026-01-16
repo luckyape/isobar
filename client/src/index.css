@@ -251,6 +251,19 @@
     border-color: oklch(0.65 0.22 25 / 30%);
   }
 
+  /* Left border utilities for status indicators */
+  .border-l-agreement-high {
+    border-left-color: oklch(0.72 0.19 160);
+  }
+
+  .border-l-agreement-medium {
+    border-left-color: oklch(0.75 0.18 85);
+  }
+
+  .border-l-agreement-low {
+    border-left-color: oklch(0.65 0.22 25);
+  }
+
   /* Subtle background utilities for card surfaces */
   .bg-subtle {
     background-color: oklch(1 0 0 / 2%);

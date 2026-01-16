@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Star, Check, Search, MapPin, Loader2, X, ChevronDown, Crown, Info } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -6,7 +6,8 @@ import { Command, CommandInput, CommandList, CommandEmpty, CommandGroup, Command
 import { Dialog, DialogContent, DialogTrigger, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Drawer, DrawerContent, DrawerTrigger, DrawerHeader, DrawerTitle } from '@/components/ui/drawer';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
-import { searchLocations, CANADIAN_CITIES, type Location } from '@/lib/weatherApi';
+import { CANADIAN_CITIES, type Location } from '@/lib/weatherApi';
+import { searchCities, type CityCandidate } from '@/lib/cityAutocomplete';
 import { hasEverSetPrimary, markPrimaryAsSet } from '@/lib/locationStore';
 import { PrimaryLocationDialog } from '@/components/PrimaryLocationDialog';
 import { cn } from '@/lib/utils';
@@ -111,23 +112,61 @@ export function LocationSearch({ currentLocation, primaryLocation, onLocationSel
     setPendingPrimaryLocation(null);
   };
 
+  // Abort controller ref for cancellable requests
+  const abortControllerRef = useRef<AbortController | null>(null);
+
+  /**
+   * Convert CityCandidate to Location for compatibility with existing code
+   */
+  const candidateToLocation = (c: CityCandidate): Location => ({
+    name: c.name,
+    latitude: c.lat,
+    longitude: c.lon,
+    country: c.countryCode === 'CA' ? 'Canada' : c.countryCode,
+    province: c.region ?? undefined,
+    timezone: 'America/Toronto', // Default, will be corrected on select
+  });
+
   useEffect(() => {
     if (disabled) {
       setSearchResults([]);
       setIsSearching(false);
       return;
     }
+
     const timer = setTimeout(async () => {
       if (query.length >= 2) {
+        // Cancel any pending request
+        if (abortControllerRef.current) {
+          abortControllerRef.current.abort();
+        }
+        abortControllerRef.current = new AbortController();
+
         setIsSearching(true);
-        const locations = await searchLocations(query);
-        setSearchResults(locations);
-        setIsSearching(false);
+        try {
+          const candidates = await searchCities(query, {
+            signal: abortControllerRef.current.signal,
+          });
+          setSearchResults(candidates.map(candidateToLocation));
+        } catch (err) {
+          // Ignore abort errors
+          if ((err as Error).name !== 'AbortError') {
+            console.error('Search error:', err);
+          }
+        } finally {
+          setIsSearching(false);
+        }
       } else {
         setSearchResults([]);
       }
     }, 300);
-    return () => clearTimeout(timer);
+
+    return () => {
+      clearTimeout(timer);
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+    };
   }, [query, disabled]);
 
   const handleSelect = (location: Location) => {
