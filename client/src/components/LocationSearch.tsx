@@ -1,9 +1,9 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Star, Check, Search, MapPin, Loader2, X, ChevronDown, Crown } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Command, CommandInput, CommandList, CommandEmpty, CommandGroup, CommandItem } from '@/components/ui/command';
-import { Dialog, DialogContent, DialogTrigger } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogTrigger, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Drawer, DrawerContent, DrawerTrigger, DrawerHeader, DrawerTitle } from '@/components/ui/drawer';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
@@ -226,6 +226,8 @@ export function LocationSearch({ currentLocation, primaryLocation, onLocationSel
         <Dialog open={isOpen} onOpenChange={setIsOpen}>
           <DialogTrigger asChild>{LocationTrigger}</DialogTrigger>
           <DialogContent className="p-0 w-auto glass-card bg-background/90 backdrop-blur-xl border-white/15 shadow-2xl">
+            <DialogTitle className="sr-only">Select a Location</DialogTitle>
+            <DialogDescription className="sr-only">Search for a location or select from favorites</DialogDescription>
             {LocationContent}
           </DialogContent>
         </Dialog>

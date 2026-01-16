@@ -5,6 +5,7 @@
  * Primary Location (stopping observations for old, starting for new).
  */
 
+import React from 'react';
 import {
     AlertDialog,
     AlertDialogAction,
