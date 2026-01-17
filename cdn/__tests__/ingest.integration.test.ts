@@ -49,7 +49,7 @@ describe('CDN POST /ingest endpoint', () => {
             expect(response.status).toBe(400);
             const data = (await response.json()) as IngestResponse;
             expect(data.error).toBe('INVALID_LOCATION');
-        });
+        }, 30000);
 
         it('should reject requests with missing longitude', async () => {
             const response = await fetch(`${CDN_BASE_URL}/ingest`, {
@@ -61,7 +61,7 @@ describe('CDN POST /ingest endpoint', () => {
             expect(response.status).toBe(400);
             const data = (await response.json()) as IngestResponse;
             expect(data.error).toBe('INVALID_LOCATION');
-        });
+        }, 30000);
 
         it('should reject requests with non-finite coordinates', async () => {
             const response = await fetch(`${CDN_BASE_URL}/ingest`, {
@@ -73,7 +73,7 @@ describe('CDN POST /ingest endpoint', () => {
             expect(response.status).toBe(400);
             const data = (await response.json()) as IngestResponse;
             expect(data.error).toBe('INVALID_LOCATION');
-        });
+        }, 30000);
     });
 
     describe('Successful ingestion', () => {

@@ -15,9 +15,6 @@ import { canonicalizeLocKey, isValidLocationScopeId, computeLocationScopeId, nor
 
 export interface Env {
     BUCKET: R2Bucket;
-    INGEST_LATITUDE: string;
-    INGEST_LONGITUDE: string;
-    INGEST_TIMEZONE: string;
     /** Optional Ed25519 private key (hex) for signing manifests. Configure via `wrangler secret put`. */
     MANIFEST_PRIVATE_KEY_HEX?: string;
 }
@@ -114,46 +111,18 @@ function addUtcDays(date: string, deltaDays: number): string | null {
 export default {
     /**
      * Handle scheduled cron triggers for ingest.
+     * 
+     * NOTE: Scheduled ingest is currently disabled as we have removed the hardcoded
+     * single-location environment variables (INGEST_LATITUDE/LONGITUDE).
+     * Future work will implement a multi-location scheduler.
      */
     async scheduled(
         controller: ScheduledController,
         env: Env,
         _ctx: ExecutionContext
     ): Promise<void> {
-        console.log(`[cron] Ingest triggered at ${new Date().toISOString()}`);
-
-        const storage = new R2Storage(env.BUCKET);
-        const latitude = parseFloat(env.INGEST_LATITUDE);
-        const longitude = parseFloat(env.INGEST_LONGITUDE);
-        const timezone = env.INGEST_TIMEZONE;
-        const manifestSigningKeyHex = env.MANIFEST_PRIVATE_KEY_HEX?.trim() || undefined;
-
-        if (!Number.isFinite(latitude) || !Number.isFinite(longitude) || !timezone) {
-            const error = new Error('[cron] Missing required environment variables INGEST_LATITUDE, INGEST_LONGITUDE, or INGEST_TIMEZONE');
-            console.error(error.message);
-            throw error;
-        }
-
-        const cron = (controller as any)?.cron as string | undefined;
-        const isHourlyObs = cron === '0 * * * *';
-
-        try {
-            const result = await runIngest({
-                latitude,
-                longitude,
-                timezone,
-                storage,
-                manifestSigningKeyHex,
-                includeForecasts: !isHourlyObs,
-                includeObservations: true,
-                now: new Date((controller as any)?.scheduledTime ?? Date.now())
-            });
-
-            console.log(`[cron] Ingest complete: ${result.artifacts.length} artifacts, manifest ${result.manifestHash.slice(0, 12)}...`);
-        } catch (error) {
-            console.error('[cron] Ingest failed:', error);
-            throw error;
-        }
+        console.log(`[cron] Ingest triggered at ${new Date().toISOString()} (No-op: Waiting for multi-location scheduler)`);
+        // Previously used INGEST_LATITUDE/LONGITUDE/TIMEZONE here.
     },
 
     /**
@@ -173,27 +142,12 @@ export default {
         const url = new URL(request.url);
         let { scopeKeyPrefix, routePath: path, isExplicit } = parseLocationRouting(url.pathname);
 
-        // Precedence: explicit location > primary location (default)
-        // If no explicit location is provided, default to the primary location derived from Env.
-        if (!isExplicit) {
-            const primaryLat = parseFloat(env.INGEST_LATITUDE);
-            const primaryLon = parseFloat(env.INGEST_LONGITUDE);
-            const primaryTz = env.INGEST_TIMEZONE;
-
-            if (Number.isFinite(primaryLat) && Number.isFinite(primaryLon)) {
-                const primaryScopeId = computeLocationScopeId({
-                    latitude: primaryLat,
-                    longitude: primaryLon,
-                    timezone: primaryTz,
-                    decimals: 4 // Use default decimals for consistency with valid scope IDs
-                });
-                scopeKeyPrefix = `locations/${primaryScopeId}`;
-            }
-        }
+        // Precedence: explicit location only.
+        // We no longer fallback to a "primary location" defined in Env.
 
         // Add headers for observability
         const effectiveLocationScope = scopeKeyPrefix ? scopeKeyPrefix.replace('locations/', '') : 'global';
-        const effectiveLocationSource = isExplicit ? 'explicit' : 'primary';
+        const effectiveLocationSource = isExplicit ? 'explicit' : 'none';
 
         const addObservabilityHeaders = (res: Response): Response => {
             res.headers.set('X-Weather-Location-Scope', effectiveLocationScope);

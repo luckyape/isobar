@@ -8,13 +8,12 @@ compatibility_flags = ["nodejs_compat"]
 binding = "BUCKET"
 bucket_name = "weather-forecast-cdn"
 
-# Cron triggers for scheduled ingest
+# Cron triggers for scheduled ingest (Temporarily disabled while moving to multi-location)
 [triggers]
-crons = ["0 */6 * * *", "0 * * * *"]  # Forecasts every 6 hours; observations hourly on the hour
+# crons = ["0 */6 * * *", "0 * * * *"] 
 
 # Environment variables
 [vars]
-VITE_CDN_URL = "https://weather-forecast-cdn.graham-cbc.workers.dev"
 
 # Production environment
 [env.production]
