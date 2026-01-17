@@ -52,7 +52,7 @@ export function ForecastDisplay({
       valueLabel: 'relative z-10 text-[clamp(2.25rem,5vw,4.25rem)] sm:text-[clamp(3rem,4vw,5.25rem)] text-foreground',
       unit: 'relative z-10 text-3xl sm:text-5xl text-foreground/80',
       desc: 'relative z-10 text-xs sm:text-sm font-bold tracking-[0.3em] text-foreground/70 drop-shadow-md',
-      iconMargin: '-mb-16 sm:-mb-24',
+      iconMargin: '-mb-8 sm:-mb-12',
       descMargin: 'mt-0'
     }
     : {
