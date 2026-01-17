@@ -47,27 +47,27 @@ export function ForecastDisplay({
       : '—';
   const sizeStyles = size === 'hero'
     ? {
-      icon: 'text-3xl sm:text-5xl',
-      value: 'text-5xl sm:text-7xl',
-      valueLabel: 'text-[clamp(2.25rem,5vw,4.25rem)] sm:text-[clamp(3rem,4vw,5.25rem)]',
-      unit: 'text-2xl sm:text-4xl',
-      desc: 'text-[10px] sm:text-sm',
-      iconMargin: 'mb-1 sm:mb-2',
-      descMargin: 'mt-1 sm:mt-2'
+      icon: 'w-32 h-32 sm:w-48 sm:h-48 text-primary/20',
+      value: 'relative z-10 text-6xl sm:text-8xl font-black drop-shadow-xl text-foreground',
+      valueLabel: 'relative z-10 text-[clamp(2.25rem,5vw,4.25rem)] sm:text-[clamp(3rem,4vw,5.25rem)] text-foreground',
+      unit: 'relative z-10 text-3xl sm:text-5xl text-foreground/60',
+      desc: 'relative z-10 text-xs sm:text-sm font-bold tracking-[0.2em] text-foreground/60',
+      iconMargin: '-mb-12 sm:-mb-16',
+      descMargin: 'mt-2'
     }
     : {
-      icon: 'text-2xl sm:text-4xl',
-      value: 'text-4xl sm:text-6xl',
-      valueLabel: 'text-[clamp(1.85rem,4.2vw,3.25rem)] sm:text-[clamp(2.35rem,3.2vw,3.75rem)]',
-      unit: 'text-xl sm:text-3xl',
-      desc: 'text-[9px] sm:text-xs',
+      icon: 'text-2xl sm:text-4xl text-foreground/80',
+      value: 'text-4xl sm:text-6xl text-foreground',
+      valueLabel: 'text-[clamp(1.85rem,4.2vw,3.25rem)] sm:text-[clamp(2.35rem,3.2vw,3.75rem)] text-foreground',
+      unit: 'text-xl sm:text-3xl text-foreground/50',
+      desc: 'text-[9px] sm:text-xs text-foreground/50',
       iconMargin: 'mb-0.5 sm:mb-1.5',
       descMargin: 'mt-0.5 sm:mt-1.5'
     };
 
   return (
     <div className={cn('flex flex-col items-center text-center', className)}>
-      <div className={cn(sizeStyles.icon, sizeStyles.iconMargin, 'opacity-80 leading-none')}>
+      <div className={cn(sizeStyles.icon, sizeStyles.iconMargin, 'leading-none flex items-center justify-center transition-all duration-500 ease-out')}>
         {icon ?? '—'}
       </div>
       {!hideValue && (
@@ -105,7 +105,7 @@ export function ForecastDisplay({
           </div>
         )
       )}
-      <div className={cn('font-bold uppercase tracking-[0.14em] opacity-50 leading-none', sizeStyles.desc, sizeStyles.descMargin)}>
+      <div className={cn('uppercase leading-none', sizeStyles.desc, sizeStyles.descMargin)}>
         {description ?? '—'}
       </div>
     </div>
