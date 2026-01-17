@@ -11,6 +11,9 @@ import {
 import { Cloud, Droplets, Thermometer, Wind, X } from 'lucide-react';
 import type { ModelForecast } from '@/lib/weatherApi';
 import { normalizeWeatherCode, WEATHER_CODES } from '@/lib/weatherApi';
+import { WeatherIcon } from '@/components/icons/WeatherIcon';
+import { conditionToIconName } from '@/lib/weatherIcons';
+import { getIsDay } from '@/lib/dayNight';
 import {
   findCurrentHourIndex,
   formatHourLabel,
@@ -70,10 +73,19 @@ function windDirectionLabel(degrees: number | null | undefined): string {
   return directions[index];
 }
 
-function getWeatherInfo(code: number | null | undefined) {
+function getWeatherInfo(
+  code: number | null | undefined,
+  epoch?: number,
+  timezone?: string
+) {
   const normalized = normalizeWeatherCode(code);
   if (!Number.isFinite(normalized)) return null;
-  return WEATHER_CODES[normalized] || { description: 'Unknown', icon: '❓' };
+  const isDay = epoch ? getIsDay(epoch, undefined, timezone) : true;
+  const iconName = conditionToIconName(normalized, isDay);
+  return {
+    iconName,
+    description: WEATHER_CODES[normalized]?.description || 'Unknown'
+  };
 }
 
 function buildTimeSlots({
@@ -430,7 +442,8 @@ export function ModelForecastDrilldownPanel({
               <ChartCard title="Conditions" icon={Cloud}>
                 <div className="flex flex-wrap justify-center gap-3 pb-2">
                   {conditionSamples.map((slot) => {
-                    const info = getWeatherInfo(slot.hour.weatherCode);
+                    const epoch = new Date(slot.time).getTime() / 1000;
+                    const info = getWeatherInfo(slot.hour.weatherCode, epoch, timezone);
                     return (
                       <div
                         key={slot.time}
@@ -440,7 +453,9 @@ export function ModelForecastDrilldownPanel({
                         )}
                       >
                         <span className="text-[10px] text-foreground/70">{slot.label}</span>
-                        <span className="text-lg leading-none">{info?.icon ?? '—'}</span>
+                        <span className="text-lg leading-none h-6 w-6">
+                          {info?.iconName ? <WeatherIcon name={info.iconName} className="h-full w-full" /> : '—'}
+                        </span>
                         <span className="mt-1 text-[10px] text-foreground/60 line-clamp-1">
                           {info?.description ?? '—'}
                         </span>
@@ -472,7 +487,8 @@ export function ModelForecastDrilldownPanel({
                 </TableHeader>
                 <TableBody>
                   {timeSlots.map((slot) => {
-                    const info = getWeatherInfo(slot.hour.weatherCode);
+                    const epoch = new Date(slot.time).getTime() / 1000;
+                    const info = getWeatherInfo(slot.hour.weatherCode, epoch, timezone);
                     return (
                       <TableRow
                         key={slot.time}
@@ -499,8 +515,10 @@ export function ModelForecastDrilldownPanel({
                         <TableCell className="font-mono tabular-nums">
                           {windDirectionLabel(slot.hour.windDirection)}
                         </TableCell>
-                        <TableCell className="text-xs">
-                          <span className="mr-1">{info?.icon ?? '—'}</span>
+                        <TableCell className="text-xs flex items-center gap-1.5">
+                          <span className="h-4 w-4 shrink-0">
+                            {info?.iconName ? <WeatherIcon name={info.iconName} className="h-full w-full" /> : '—'}
+                          </span>
                           <span className="text-foreground/80">{info?.description ?? '—'}</span>
                         </TableCell>
                       </TableRow>

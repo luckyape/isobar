@@ -41,6 +41,9 @@ import {
   isSameDate,
   parseOpenMeteoDate
 } from '@/lib/timeUtils';
+import { WeatherIcon } from '@/components/icons/WeatherIcon';
+import { conditionToIconName } from '@/lib/weatherIcons';
+import { getIsDay } from '@/lib/dayNight';
 
 interface DailyForecastProps {
   daily: DailyConsensus[];
@@ -411,7 +414,8 @@ export const ModelBreakdownPanel = memo(function ModelBreakdownPanel({
           const precip = getNumeric(entry.daily?.precipitationSum);
           const wind = getNumeric(entry.daily?.windSpeedMax);
           const code = getNumeric(entry.daily?.weatherCode);
-          const weatherInfo = code !== null ? WEATHER_CODES[code] : null;
+          // For daily breakdown, we assume day icons
+          const conditionIconName = code !== null ? conditionToIconName(code, true) : null;
           const ageSeconds = entry.runAvailabilityTime !== null
             ? Math.max(0, nowSeconds - (entry.runAvailabilityTime as number))
             : null;
@@ -512,7 +516,9 @@ export const ModelBreakdownPanel = memo(function ModelBreakdownPanel({
                   style={conditionOutlierStyle}
                 >
                   <span>Cond</span>
-                  <span className="text-sm leading-none">{weatherInfo ? weatherInfo.icon : '—'}</span>
+                  <span className="text-sm leading-none flex justify-end">
+                    {conditionIconName ? <WeatherIcon name={conditionIconName} className="h-4 w-4" /> : '—'}
+                  </span>
                 </div>
               </div>
             </div>
@@ -781,7 +787,9 @@ const ModelHourlyBreakdownPanel = memo(function ModelHourlyBreakdownPanel({
           const precipAmount = getNumeric(entry.hour?.precipitation);
           const wind = getNumeric(entry.hour?.windSpeed);
           const code = getNumeric(entry.hour?.weatherCode);
-          const weatherInfo = code !== null ? WEATHER_CODES[code] : null;
+          const hourEpoch = entry.hour?.time ? new Date(entry.hour.time).getTime() / 1000 : nowSeconds;
+          const isDay = getIsDay(hourEpoch, undefined, timezone);
+          const conditionIconName = code !== null ? conditionToIconName(code, isDay) : null;
           const ageSeconds = entry.runAvailabilityTime !== null
             ? Math.max(0, nowSeconds - (entry.runAvailabilityTime as number))
             : null;
@@ -921,7 +929,9 @@ const ModelHourlyBreakdownPanel = memo(function ModelHourlyBreakdownPanel({
                   style={conditionOutlierStyle}
                 >
                   <span>Cond</span>
-                  <span className="text-sm leading-none">{weatherInfo ? weatherInfo.icon : '—'}</span>
+                  <span className="text-sm leading-none flex justify-end">
+                    {conditionIconName ? <WeatherIcon name={conditionIconName} className="h-4 w-4" /> : '—'}
+                  </span>
                 </div>
               </div>
             </div>
@@ -970,7 +980,10 @@ const HourlyForecastRow = memo(function HourlyForecastRow({
   timezone?: string;
   onToggle: (time: string) => void;
 }) {
-  const weatherInfo = WEATHER_CODES[hour.weatherCode.dominant] || { description: 'Unknown', icon: '❓' };
+  const hourEpoch = new Date(hour.time).getTime() / 1000;
+  const isDay = getIsDay(hourEpoch, undefined, timezone);
+  const conditionIconName = conditionToIconName(hour.weatherCode.dominant, isDay);
+  const weatherDescription = WEATHER_CODES[hour.weatherCode.dominant]?.description || 'Unknown';
   const agreementScore = Number.isFinite(hour.overallAgreement) ? hour.overallAgreement : 0;
   const borderClass = getAgreementBorder(agreementScore);
 
@@ -988,8 +1001,8 @@ const HourlyForecastRow = memo(function HourlyForecastRow({
         </div>
 
         {/* Weather icon */}
-        <div className="w-10 shrink-0 text-center text-xl sm:w-12">
-          {weatherInfo.icon}
+        <div className="w-10 shrink-0 text-center text-xl sm:w-12 h-10">
+          <WeatherIcon name={conditionIconName} className="w-full h-full" />
         </div>
 
         {/* Temperature */}
@@ -1000,7 +1013,7 @@ const HourlyForecastRow = memo(function HourlyForecastRow({
             </span>
           </div>
           <p className="text-xs text-foreground/80 truncate">
-            {weatherInfo.description}
+            {weatherDescription}
           </p>
         </div>
       </div>
@@ -1149,7 +1162,8 @@ const DailyForecastRow = memo(function DailyForecastRow({
   timezone?: string;
   onToggle: (date: string) => void;
 }) {
-  const weatherInfo = WEATHER_CODES[day.weatherCode.dominant] || { description: 'Unknown', icon: '❓' };
+  const conditionIconName = conditionToIconName(day.weatherCode.dominant, true);
+  const weatherDescription = WEATHER_CODES[day.weatherCode.dominant]?.description || 'Unknown';
   const borderClass = showAgreement ? getAgreementBorder(day.overallAgreement) : 'border-white/10';
 
   return (
@@ -1166,8 +1180,8 @@ const DailyForecastRow = memo(function DailyForecastRow({
         </div>
 
         {/* Weather icon */}
-        <div className="w-10 shrink-0 text-center text-2xl sm:w-12">
-          {weatherInfo.icon}
+        <div className="w-10 shrink-0 text-center text-2xl sm:w-12 h-10">
+          <WeatherIcon name={conditionIconName} className="w-full h-full" />
         </div>
 
         {/* Temperature range */}
@@ -1181,7 +1195,7 @@ const DailyForecastRow = memo(function DailyForecastRow({
             </span>
           </div>
           <p className="text-xs text-foreground/80 truncate">
-            {weatherInfo.description}
+            {weatherDescription}
           </p>
         </div>
       </div>

@@ -67,6 +67,9 @@ import { fetchObservationsForRange, type ObservationData } from '@/lib/observati
 import { signedDelta, circularAbsDiffDeg } from '@/lib/observations/error';
 import { bucketMs, bucketEndMs, isBucketCompleted } from '@/lib/observations/bucketing';
 import { isBucketedAccumulation } from '@/lib/observations/vars';
+import { WeatherIcon } from '@/components/icons/WeatherIcon';
+import { conditionToIconName } from '@/lib/weatherIcons';
+import { getIsDay } from '@/lib/dayNight';
 
 type GraphKey = 'temperature' | 'precipitation' | 'wind' | 'conditions';
 type ViewMode = 'chart' | 'table';
@@ -229,11 +232,18 @@ function withAlpha(color: string, alpha: number): string {
 }
 
 function getWeatherInfo(
-  code: number | null | undefined
-): { icon: string; description: string } | null {
+  code: number | null | undefined,
+  epoch?: number | null,
+  timezone?: string
+): { iconName: string | null; description: string } | null {
   const normalized = normalizeWeatherCode(code);
   if (!Number.isFinite(normalized)) return null;
-  return WEATHER_CODES[normalized] || { description: 'Unknown', icon: '❓' };
+  const isDay = epoch ? getIsDay(epoch, undefined, timezone) : true;
+  const iconName = conditionToIconName(normalized, isDay);
+  return {
+    iconName,
+    description: WEATHER_CODES[normalized]?.description || 'Unknown'
+  };
 }
 
 function getObservedIntensityColor(intensity: number): string {
@@ -616,7 +626,7 @@ function PrecipitationComparisonGraph({
               const isActive = hoverIndex === index;
               const isCurrent = slot.time === nowMarkerTimeKey;
               const tooltip = tooltipColumns[index];
-              const consensusWeatherInfo = getWeatherInfo(tooltip.consensus?.weatherCode);
+              const consensusWeatherInfo = getWeatherInfo(tooltip.consensus?.weatherCode, slot.epoch);
               return (
                 <Tooltip key={slot.time}>
                   <TooltipTrigger asChild>
@@ -760,10 +770,12 @@ function PrecipitationComparisonGraph({
                                 />
                                 {consensusWeatherInfo && (
                                   <span
-                                    className="text-sm"
+                                    className="flex items-center gap-1 text-sm"
                                     title={consensusWeatherInfo.description}
                                   >
-                                    {consensusWeatherInfo.icon}
+                                    <span className="h-4 w-4">
+                                      {consensusWeatherInfo.iconName ? <WeatherIcon name={consensusWeatherInfo.iconName as any} className="h-full w-full" /> : null}
+                                    </span>
                                   </span>
                                 )}
                               </span>
@@ -813,10 +825,12 @@ function PrecipitationComparisonGraph({
                                   />
                                   {weatherInfo && (
                                     <span
-                                      className="text-sm"
+                                      className="flex items-center gap-1 text-sm"
                                       title={weatherInfo.description}
                                     >
-                                      {weatherInfo.icon}
+                                      <span className="h-4 w-4">
+                                        {weatherInfo.iconName ? <WeatherIcon name={weatherInfo.iconName as any} className="h-full w-full" /> : null}
+                                      </span>
                                     </span>
                                   )}
                                 </span>
@@ -1128,7 +1142,7 @@ function ConditionsComparisonGraph({
                               <div className="absolute inset-0 -mx-[2px] rounded bg-primary/5 pointer-events-none" />
                             )}
                             <ConditionCell
-                              icon={weatherInfo?.icon ?? null}
+                              icon={weatherInfo?.iconName ? <WeatherIcon name={weatherInfo.iconName as any} className="h-4 w-4" /> : null}
                               isDisabled={!row.available}
                               isActive={isActive}
                               isConsensus={isConsensusRow}
@@ -1156,10 +1170,12 @@ function ConditionsComparisonGraph({
                                 />
                                 {consensusInfo && (
                                   <span
-                                    className="text-sm"
+                                    className="flex items-center gap-1 text-sm"
                                     title={consensusInfo.description}
                                   >
-                                    {consensusInfo.icon}
+                                    <span className="h-4 w-4">
+                                      {consensusInfo.iconName ? <WeatherIcon name={consensusInfo.iconName as any} className="h-full w-full" /> : null}
+                                    </span>
                                   </span>
                                 )}
                               </span>
@@ -1199,10 +1215,12 @@ function ConditionsComparisonGraph({
                                   />
                                   {modelInfo && (
                                     <span
-                                      className="text-sm"
+                                      className="flex items-center gap-1 text-sm"
                                       title={modelInfo.description}
                                     >
-                                      {modelInfo.icon}
+                                      <span className="h-4 w-4">
+                                        {modelInfo.iconName ? <WeatherIcon name={modelInfo.iconName as any} className="h-full w-full" /> : null}
+                                      </span>
                                     </span>
                                   )}
                                 </span>
@@ -1373,7 +1391,7 @@ function ConditionCell({
   rowGlowColor,
   testId
 }: {
-  icon: string | null;
+  icon: React.ReactNode | null;
   isDisabled?: boolean;
   isActive?: boolean;
   isConsensus?: boolean;

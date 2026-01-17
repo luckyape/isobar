@@ -14,7 +14,6 @@ import {
   DrawerTitle
 } from '@/components/ui/drawer';
 import { Carousel, CarouselContent, CarouselItem, type CarouselApi } from '@/components/ui/carousel';
-import { Cloud, Droplets, Thermometer, Wind } from 'lucide-react';
 import { useWeather } from '@/hooks/useWeather';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { DualRingGauge } from '@/components/DualRingGauge';
@@ -26,6 +25,10 @@ import {
   CATEGORY_DETAIL_META,
   type CategoryDetailKey
 } from '@/components/CategoryDetailPanel';
+import { WeatherIcon } from '@/components/icons/WeatherIcon';
+import { conditionToIconName } from '@/lib/weatherIcons';
+import { getIsDay } from '@/lib/dayNight';
+import type { WeatherIconName } from '@/icons/weather';
 import { ModelForecastDetailPanel } from '@/components/ModelForecastDetailPanel';
 import { DailyForecast, type BreakdownLens } from '@/components/DailyForecast';
 import { GraphsPanel } from '@/components/GraphsPanel';
@@ -35,12 +38,12 @@ import { WEATHER_CODES } from '@/lib/weatherApi';
 import { findCurrentHourIndex, formatHourLabel, parseOpenMeteoDateTime } from '@/lib/timeUtils';
 
 // Unified drawer tab configuration
-const DRAWER_TABS = [
+const DRAWER_TABS: Array<{ key: string; label: string; shortLabel: string; icon: WeatherIconName | null }> = [
   { key: 'overall', label: 'Overall', shortLabel: 'All', icon: null },
-  { key: 'temperature', label: 'Temperature', shortLabel: 'Temp', icon: Thermometer },
-  { key: 'precipitation', label: 'Precipitation', shortLabel: 'Precip', icon: Droplets },
-  { key: 'wind', label: 'Wind', shortLabel: 'Wind', icon: Wind },
-  { key: 'conditions', label: 'Conditions', shortLabel: 'Cond', icon: Cloud }
+  { key: 'temperature', label: 'Temperature', shortLabel: 'Temp', icon: 'Thermometer' },
+  { key: 'precipitation', label: 'Precipitation', shortLabel: 'Precip', icon: 'Raindrops' },
+  { key: 'wind', label: 'Wind', shortLabel: 'Wind', icon: 'Wind' },
+  { key: 'conditions', label: 'Conditions', shortLabel: 'Cond', icon: 'PartlyCloudyDay' }
 ] as const;
 type DrawerTabKey = typeof DRAWER_TABS[number]['key'];
 
@@ -68,6 +71,7 @@ export default function Home() {
   const [breakdownCategory, setBreakdownCategory] = useState<string | null>(null);
   const [carouselApi, setCarouselApi] = useState<CarouselApi>();
   const [showDiagnostics, setShowDiagnostics] = useState(false);
+  const nowSeconds = Date.now() / 1000;
 
   // 1. Compute Safe Forecast Spine ONCE
   // Use the canonical contract: normalizeModel returns status='ok' for valid models
@@ -242,8 +246,19 @@ export default function Home() {
     ? (displayWeatherCode as number)
     : null;
   const weatherInfo = weatherCodeValue !== null
-    ? WEATHER_CODES[weatherCodeValue] || { description: 'Unknown', icon: '❓' }
+    ? WEATHER_CODES[weatherCodeValue] || { description: 'Unknown' }
     : null;
+
+  const currentEpoch = currentConsensus?.epoch ?? currentForecastHour?.epoch ?? nowSeconds;
+  const todayDate = (currentConsensus?.time ?? currentForecastHour?.time)?.split('T')[0];
+  const representativeForecast = okForecasts[0];
+  const representativeDaily = representativeForecast?.daily.find(d => d.date === todayDate);
+  const isDay = getIsDay(currentEpoch, representativeDaily, location?.timezone);
+  const conditionIconName = weatherCodeValue !== null ? conditionToIconName(weatherCodeValue, isDay) : null;
+  const ConditionIcon = conditionIconName
+    ? <WeatherIcon name={conditionIconName} className="h-full w-full" />
+    : <span className="text-2xl">?</span>;
+
   const weatherConfidenceCardData = useMemo(() => {
     if (!consensusAvailable || !currentConsensus) return null;
     const formatUpdatedAt = () => {
@@ -271,7 +286,7 @@ export default function Home() {
       current: {
         temp: safeTemp,
         condition: weatherInfo?.description ?? 'Unknown',
-        icon: weatherInfo?.icon ?? '❔'
+        icon: ConditionIcon
       },
       overallConfidence: safeOverall,
       freshness: freshnessScoreValue ?? null,
@@ -316,7 +331,6 @@ export default function Home() {
     });
   }
 
-  const nowSeconds = Date.now() / 1000;
   const modelByName = new Map(forecasts.map((forecast) => [forecast.model.name, forecast]));
   const modelColorByName = new Map(forecasts.map((forecast) => [
     forecast.model.name,
@@ -510,7 +524,7 @@ export default function Home() {
         />
         <div className="container py-20">
           <div className="glass-card p-8 max-w-lg mx-auto text-center readable-text border-white/10">
-            <Cloud className="w-12 h-12 mx-auto mb-4 text-foreground/40" />
+            <WeatherIcon name="Overcast" className="w-12 h-12 mx-auto mb-4 text-foreground/40" />
             <h3 className="text-lg font-medium mb-2">Forecast Unavailable</h3>
             <p className="text-foreground/70 mb-6">
               No weather models returned valid data for this location.
@@ -696,7 +710,7 @@ export default function Home() {
                         {/* Tab Indicators with sliding pill */}
                         <div className="mx-4 mt-2 mb-4 grid grid-cols-5 gap-1 p-1 rounded-lg bg-white/[0.04]">
                           {DRAWER_TABS.map((tab) => {
-                            const Icon = tab.icon;
+                            const iconName = tab.icon;
                             const isActive = activeDrawerTab === tab.key;
                             return (
                               <button
@@ -718,7 +732,7 @@ export default function Home() {
                                   />
                                 )}
                                 <span className={`relative z-10 ${isActive ? 'text-foreground' : 'text-foreground/50 hover:text-foreground/80'}`}>
-                                  {Icon ? <Icon className="h-4 w-4" /> : <span className="text-xs">{tab.shortLabel}</span>}
+                                  {iconName ? <WeatherIcon name={iconName} className="h-4 w-4" /> : <span className="text-xs">{tab.shortLabel}</span>}
                                 </span>
                               </button>
                             );
@@ -767,7 +781,7 @@ export default function Home() {
                       metrics={heroAgreementMetrics}
                       forecast={displayTemperatureValue !== null && weatherInfo ? {
                         temperature: displayTemperatureValue,
-                        icon: weatherInfo.icon,
+                        icon: ConditionIcon,
                         description: weatherInfo.description
                       } : undefined}
                       onOverallTap={showHeroModels ? () => setActiveDrawerTab('overall') : undefined}
@@ -804,7 +818,7 @@ export default function Home() {
                       <div className="mb-4 p-1 rounded-lg bg-white/[0.04] flex items-center">
                         <div className="flex-1 grid grid-cols-5 gap-1">
                           {DRAWER_TABS.map((tab) => {
-                            const Icon = tab.icon;
+                            const iconName = tab.icon;
                             const isActive = activeDrawerTab === tab.key;
                             return (
                               <button
@@ -826,7 +840,7 @@ export default function Home() {
                                   />
                                 )}
                                 <span className={`relative z-10 flex items-center gap-1.5 ${isActive ? 'text-foreground' : 'text-foreground/60 hover:text-foreground'}`}>
-                                  {Icon && <Icon className="h-3.5 w-3.5" />}
+                                  {iconName && <WeatherIcon name={iconName} className="h-3.5 w-3.5" />}
                                   <span>{tab.label}</span>
                                 </span>
                               </button>

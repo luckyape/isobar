@@ -1,24 +1,27 @@
 import { useMemo, useState } from 'react';
 import { useReducedMotion } from 'framer-motion';
-import { ArrowUp, Cloud, Droplets, Thermometer, Wind } from 'lucide-react';
+import { ArrowUp } from 'lucide-react';
 import type { ModelForecast } from '@/lib/weatherApi';
 import { WEATHER_CODES } from '@/lib/weatherApi';
-import { findCurrentHourIndex } from '@/lib/timeUtils';
+import { findCurrentHourIndex, isSameDate } from '@/lib/timeUtils';
 import { cn } from '@/lib/utils';
 import { ForecastDisplay } from '@/components/ForecastDisplay';
 import { ModelBadgeIcon } from '@/components/ModelBadgeIcon';
 import { ModelForecastDrilldownPanel } from '@/components/ModelForecastDrilldownPanel';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
+import { WeatherIcon } from '@/components/icons/WeatherIcon';
+import { getIsDay } from '@/lib/dayNight';
+import { conditionToIconName } from '@/lib/weatherIcons';
 
 const MODEL_ORDER = ['ECMWF', 'GFS', 'ICON', 'GEM'] as const;
 const MODEL_ORDER_SET = new Set<string>(MODEL_ORDER);
 const FALLBACK_MODEL_COLOR = 'oklch(0.95 0.01 240)';
 
 export const CATEGORY_DETAIL_META = {
-  temperature: { label: 'Temperature', unit: '°', icon: Thermometer },
-  precipitation: { label: 'Precipitation', unit: '%', icon: Droplets },
-  wind: { label: 'Wind', unit: 'km/h', icon: Wind },
-  conditions: { label: 'Conditions', unit: '', icon: Cloud }
+  temperature: { label: 'Temperature', unit: '°', icon: 'Thermometer' },
+  precipitation: { label: 'Precipitation', unit: '%', icon: 'Raindrops' },
+  wind: { label: 'Wind', unit: 'km/h', icon: 'Wind' },
+  conditions: { label: 'Conditions', unit: '', icon: 'PartlyCloudyDay' }
 } as const;
 
 export type CategoryDetailKey = keyof typeof CATEGORY_DETAIL_META;
@@ -128,17 +131,32 @@ export function CategoryDetailPanel({
             ? { background: `linear-gradient(135deg, ${tint}, var(--background))` }
             : undefined;
           const weatherInfo = Number.isFinite(entry.hour?.weatherCode ?? NaN)
-            ? (WEATHER_CODES[entry.hour?.weatherCode as number] || { description: 'Unknown', icon: '❓' })
+            ? (WEATHER_CODES[entry.hour?.weatherCode as number] || { description: 'Unknown' })
             : null;
+
+          // Determine isDay for conditions icon
+          let isDay = true;
+          if (entry.name && entry.hour) {
+            const forecast = forecasts.find(f => f.model.name === entry.name);
+            if (forecast) {
+              const datePart = entry.hour.time.split('T')[0];
+              const daily = forecast.daily.find(d => d.date === datePart);
+              isDay = getIsDay(entry.hour.epoch, daily, timezone);
+            }
+          }
+
           const categoryMeta = CATEGORY_DETAIL_META[category];
           const isConditions = category === 'conditions';
-          const description = isConditions
-            ? categoryMeta.label
-            : categoryMeta.label;
+          const description = categoryMeta.label;
+
           const icon = isConditions
-            ? (weatherInfo?.icon ?? '—')
+            ? (
+              weatherInfo && Number.isFinite(entry.hour?.weatherCode)
+                ? <WeatherIcon name={conditionToIconName(entry.hour!.weatherCode, isDay)} className="h-6 w-6 sm:h-8 sm:w-8 text-foreground/80" />
+                : <span className="text-2xl">?</span>
+            )
             : (
-              <categoryMeta.icon className="h-6 w-6 sm:h-8 sm:w-8 text-foreground/80" />
+              <WeatherIcon name={categoryMeta.icon} className="h-6 w-6 sm:h-8 sm:w-8 text-foreground/80" />
             );
           const valueLabel = isConditions ? (weatherInfo?.description ?? '—') : null;
           const hideValue = false;

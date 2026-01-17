@@ -9,6 +9,9 @@ import type { ModelForecast } from '@/lib/weatherApi';
 import { WEATHER_CODES } from '@/lib/weatherApi';
 import { Badge } from '@/components/ui/badge';
 import { findCurrentHourIndex } from '@/lib/timeUtils';
+import { WeatherIcon } from '@/components/icons/WeatherIcon';
+import { conditionToIconName } from '@/lib/weatherIcons';
+import { getIsDay } from '@/lib/dayNight';
 
 interface ModelCardProps {
   forecast: ModelForecast;
@@ -82,9 +85,14 @@ export function ModelCard({
 
   // Safe weather info derivation
   const hasWeatherCode = currentHour?.weatherCode !== undefined;
-  const weatherInfo = hasWeatherCode
-    ? WEATHER_CODES[currentHour!.weatherCode!] || { description: 'Unknown', icon: '❓' }
-    : { description: '--', icon: '--' };
+  const hourEpoch = currentHour?.time ? new Date(currentHour.time).getTime() / 1000 : nowSeconds;
+  const isDay = getIsDay(hourEpoch, undefined, timezone);
+  const iconName = hasWeatherCode
+    ? conditionToIconName(currentHour!.weatherCode!, isDay)
+    : null;
+  const weatherDescription = hasWeatherCode
+    ? WEATHER_CODES[currentHour!.weatherCode!]?.description || 'Unknown'
+    : '--';
 
   return (
     <motion.div
@@ -117,13 +125,15 @@ export function ModelCard({
         {/* Weather icon and temp */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <span className="text-4xl">{weatherInfo.icon}</span>
+            <span className="text-4xl h-10 w-10 flex items-center justify-center">
+              {iconName ? <WeatherIcon name={iconName} className="w-full h-full" /> : <span>--</span>}
+            </span>
             <div>
               <p className="text-3xl font-mono font-semibold">
                 {currentHour?.temperature !== undefined ? `${Math.round(currentHour.temperature)}°` : '--'}
               </p>
               <p className="text-sm text-foreground/80">
-                {weatherInfo.description}
+                {weatherDescription}
               </p>
             </div>
           </div>

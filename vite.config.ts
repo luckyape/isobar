@@ -16,6 +16,8 @@ export default defineConfig({
       "@shared": path.resolve(import.meta.dirname, "shared"),
       "@assets": path.resolve(import.meta.dirname, "attached_assets"),
       "@cdn": path.resolve(import.meta.dirname, "cdn"),
+      "react": path.resolve(import.meta.dirname, "node_modules/react"),
+      "react-dom": path.resolve(import.meta.dirname, "node_modules/react-dom"),
     },
     dedupe: ["react", "react-dom"],
   },
@@ -26,8 +28,8 @@ export default defineConfig({
     emptyOutDir: true,
   },
   server: {
-    port: 3000,
-    strictPort: false, // Will find next available port if 3000 is busy
+    port: 3002,
+    strictPort: true,
     host: true,
     allowedHosts: [
       ".manuspre.computer",
@@ -41,6 +43,12 @@ export default defineConfig({
     fs: {
       strict: true,
       deny: ["**/.*"],
+      allow: [
+        // Allow serving files from the project root (one level up from client)
+        path.resolve(import.meta.dirname),
+        // Allow serving from the sibling directory which seems to be linked by pnpm
+        path.resolve(import.meta.dirname, "../../weather-consensus"),
+      ],
     },
     proxy: meteostatProxyKey
       ? {
