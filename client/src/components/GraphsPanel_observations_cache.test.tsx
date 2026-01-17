@@ -41,6 +41,8 @@ describe('GraphsPanel observations caching across location transitions', () => {
     const locB = { latitude: 43.653226, longitude: -79.383184 };
 
     const obsA: ObservationData = {
+      stationId: 'TEST-STATION-A',
+      distanceKm: 1.2,
       trust: { mode: 'trusted' } as any,
       series: {
         buckets: [Date.now() - 2 * 60 * 60 * 1000],
@@ -54,6 +56,8 @@ describe('GraphsPanel observations caching across location transitions', () => {
     };
 
     const obsB: ObservationData = {
+      stationId: 'TEST-STATION-B',
+      distanceKm: 1.2,
       trust: { mode: 'trusted' } as any,
       series: {
         buckets: [Date.now() - 2 * 60 * 60 * 1000],
