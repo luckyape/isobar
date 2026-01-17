@@ -5,7 +5,8 @@
 
 import { memo, useCallback, useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
-import { ChevronDownIcon } from 'lucide-react';
+import { ChevronDownIcon, ArrowUp } from 'lucide-react';
+import { ModelBadgeIcon } from '@/components/ModelBadgeIcon';
 import {
   Drawer,
   DrawerClose,
@@ -42,6 +43,7 @@ import {
 
 interface DailyForecastProps {
   daily: DailyConsensus[];
+  hourly?: HourlyConsensus[];
   forecasts: ModelForecast[];
   showAgreement?: boolean;
   timezone?: string;
@@ -83,6 +85,13 @@ function formatAgeLong(seconds: number) {
   const hours = Math.floor(totalMinutes / 60);
   const minutes = totalMinutes % 60;
   return hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
+}
+
+function formatMmPerHourShort(value: number | null) {
+  if (value === null) return '—';
+  if (!Number.isFinite(value)) return '—';
+  if (value >= 0 && value < 0.05) return '<0.1';
+  return String(Math.round(value * 10) / 10);
 }
 
 function formatRunTime(seconds: number, timezone?: string) {
@@ -147,9 +156,9 @@ function getMode(values: Array<number | null>) {
 function getAgreementColor(agreement: number) {
   const { color } = getConfidenceLevel(agreement);
   const colors = {
-    high: 'bg-[oklch(0.72_0.19_160)]',
-    medium: 'bg-[oklch(0.75_0.18_85)]',
-    low: 'bg-[oklch(0.65_0.22_25)]'
+    high: 'bg-agreement-high',
+    medium: 'bg-agreement-medium',
+    low: 'bg-agreement-low'
   };
   return colors[color];
 }
@@ -157,9 +166,9 @@ function getAgreementColor(agreement: number) {
 function getAgreementBorder(agreement: number) {
   const { color } = getConfidenceLevel(agreement);
   const colors = {
-    high: 'border-[oklch(0.72_0.19_160/30%)]',
-    medium: 'border-[oklch(0.75_0.18_85/30%)]',
-    low: 'border-[oklch(0.65_0.22_25/30%)]'
+    high: 'border-agreement-high',
+    medium: 'border-agreement-medium',
+    low: 'border-agreement-low'
   };
   return colors[color];
 }
@@ -190,9 +199,9 @@ function buildOutlierStyle(ratio: number | null, minRatio = 0.35) {
 }
 
 const freshnessToneClass: Record<string, string> = {
-  fresh: 'bg-[oklch(0.72_0.19_160)]',
-  aging: 'bg-[oklch(0.75_0.18_85)]',
-  stale: 'bg-[oklch(0.65_0.22_25)]',
+  fresh: 'bg-agreement-high',
+  aging: 'bg-agreement-medium',
+  stale: 'bg-agreement-low',
   unknown: 'bg-white/20'
 };
 
@@ -250,6 +259,8 @@ export const ModelBreakdownPanel = memo(function ModelBreakdownPanel({
       }];
     });
   }, [day.date, dayIndex, forecasts, modelNames, modelOrder]);
+
+
 
   const tempHighs = modelEntries.map((entry) => getNumeric(entry.daily?.temperatureMax));
   const tempLows = modelEntries.map((entry) => getNumeric(entry.daily?.temperatureMin));
@@ -431,7 +442,7 @@ export const ModelBreakdownPanel = memo(function ModelBreakdownPanel({
           return (
             <div
               key={entry.name}
-              className="rounded-lg bg-[oklch(0.12_0.02_240)] px-3 py-2 text-foreground/90"
+              className="rounded-lg bg-background px-3 py-2 text-foreground/90"
               style={cardStyle}
             >
               <div className="flex items-center justify-between">
@@ -527,18 +538,28 @@ export const ModelBreakdownPanel = memo(function ModelBreakdownPanel({
   );
 });
 
-export const ModelHourlyBreakdownPanel = memo(function ModelHourlyBreakdownPanel({
+export type BreakdownLens = 'agreement' | 'freshness';
+
+const ModelHourlyBreakdownPanel = memo(function ModelHourlyBreakdownPanel({
   hour,
   forecasts,
   modelNames,
   timezone,
-  className
+  className,
+  focusedCategory = null,
+  lens = 'agreement',
+  onLensChange
 }: {
   hour?: HourlyConsensus | null;
   forecasts: ModelForecast[];
   modelNames?: string[];
   timezone?: string;
   className?: string;
+  focusedCategory?: string | null;
+  /** Current lens mode - affects emphasis and display */
+  lens?: BreakdownLens;
+  /** Callback when user changes lens via internal toggle */
+  onLensChange?: (lens: BreakdownLens) => void;
 }) {
   const modelOrder = useMemo<string[]>(() => {
     if (!modelNames?.length) {
@@ -566,11 +587,18 @@ export const ModelHourlyBreakdownPanel = memo(function ModelHourlyBreakdownPanel
           runAvailabilityTime: null
         }];
       }
-      const currentHourIndex = findCurrentHourIndex(
-        forecast.hourly.map((entry) => entry.time),
-        timezone
-      );
-      const currentHour = forecast.hourly[currentHourIndex] || forecast.hourly[0];
+      let currentHour;
+      if (hour?.time) {
+        currentHour = forecast.hourly.find(h => h.time === hour.time);
+      }
+
+      if (!currentHour) {
+        const currentHourIndex = findCurrentHourIndex(
+          forecast.hourly.map((entry) => entry.time),
+          timezone
+        );
+        currentHour = forecast.hourly[currentHourIndex] || forecast.hourly[0];
+      }
       const runAvailabilityTime = Number.isFinite(forecast.runAvailabilityTime)
         ? (forecast.runAvailabilityTime as number)
         : null;
@@ -584,11 +612,13 @@ export const ModelHourlyBreakdownPanel = memo(function ModelHourlyBreakdownPanel
   }, [forecasts, modelOrder, modelNames, timezone]);
 
   const tempValues = modelEntries.map((entry) => getNumeric(entry.hour?.temperature));
-  const precipValues = modelEntries.map((entry) => getNumeric(entry.hour?.precipitationProbability));
+  const precipPopValues = modelEntries.map((entry) => getNumeric(entry.hour?.precipitationProbability));
+  const precipAmountValues = modelEntries.map((entry) => getNumeric(entry.hour?.precipitation));
   const windValues = modelEntries.map((entry) => getNumeric(entry.hour?.windSpeed));
 
   const tempSpread = getSpread(tempValues);
-  const precipSpread = getSpread(precipValues);
+  const precipPopSpread = getSpread(precipPopValues);
+  const precipAmountSpread = getSpread(precipAmountValues);
   const windSpread = getSpread(windValues);
 
   const tempOutlier = useMemo(() => (
@@ -608,10 +638,10 @@ export const ModelHourlyBreakdownPanel = memo(function ModelHourlyBreakdownPanel
         name: entry.name,
         value: getNumeric(entry.hour?.precipitationProbability)
       })),
-      precipSpread,
+      precipPopSpread,
       20
     )
-  ), [modelEntries, precipSpread]);
+  ), [modelEntries, precipPopSpread]);
 
   const windOutlier = useMemo(() => (
     getOutlierInfo(
@@ -648,7 +678,7 @@ export const ModelHourlyBreakdownPanel = memo(function ModelHourlyBreakdownPanel
 
   const spreadCandidates = [
     { key: 'temperature', label: 'temperature', value: tempSpread ?? 0, unit: '°' },
-    { key: 'precipitation', label: 'precipitation', value: precipSpread ?? 0, unit: '%' },
+    { key: 'precipitation', label: 'precipitation', value: precipPopSpread ?? 0, unit: '%' },
     { key: 'wind', label: 'wind', value: windSpread ?? 0, unit: ' km/h' }
   ].filter((candidate) => candidate.value > 0);
 
@@ -673,12 +703,19 @@ export const ModelHourlyBreakdownPanel = memo(function ModelHourlyBreakdownPanel
         : 'Low agreement'
     : 'Model comparison';
 
+  const precipitationSpreadDetail = [
+    `POP Δ ${precipPopSpread !== null ? `${Math.round(precipPopSpread)}%` : '—'}`,
+    `amount Δ ${precipAmountSpread !== null ? `${formatMmPerHourShort(precipAmountSpread)} mm/hr` : '—'}`
+  ].join(', ');
+
   const hasConditionOutliers = conditionOutliers.size > 0 || hasConditionDisagreement;
   const reasonLine = agreementScore !== null
     ? agreementScore >= 75
       ? `${agreementLabel}: models aligned across all metrics.`
       : maxSpread
-        ? `${agreementLabel} driven by ${maxSpread.label} spread (${Math.round(maxSpread.value)}${maxSpread.unit}).`
+        ? maxSpread.label === 'precipitation'
+          ? `${agreementLabel} driven by precipitation spread (${precipitationSpreadDetail}).`
+          : `${agreementLabel} driven by ${maxSpread.label} spread (${Math.round(maxSpread.value)}${maxSpread.unit}).`
         : hasConditionOutliers
           ? `${agreementLabel} driven by conditions disagreement.`
           : `${agreementLabel}: limited model agreement data.`
@@ -696,12 +733,51 @@ export const ModelHourlyBreakdownPanel = memo(function ModelHourlyBreakdownPanel
     ? `${reasonLine} Freshness: ${freshnessNote}.`
     : reasonLine;
 
+  // Determine which metric is the "driver" (highest spread)
+  const driverMetric = focusedCategory || maxSpread?.label || null;
+
   return (
     <div className={cn('rounded-lg border border-white/10 bg-white/[0.02] p-3', className)}>
+      {/* Lens toggle tabs */}
+      {onLensChange && (
+        <div className="mb-3 flex gap-1 rounded-lg bg-white/[0.04] p-1">
+          <button
+            type="button"
+            onClick={() => onLensChange('agreement')}
+            className={cn(
+              'flex-1 rounded-md px-3 py-1.5 text-xs font-medium transition-colors',
+              lens === 'agreement'
+                ? 'bg-white/10 text-foreground'
+                : 'text-foreground/60 hover:text-foreground/80'
+            )}
+          >
+            Agreement
+          </button>
+          <button
+            type="button"
+            onClick={() => onLensChange('freshness')}
+            className={cn(
+              'flex-1 rounded-md px-3 py-1.5 text-xs font-medium transition-colors',
+              lens === 'freshness'
+                ? 'bg-white/10 text-foreground'
+                : 'text-foreground/60 hover:text-foreground/80'
+            )}
+          >
+            Freshness
+          </button>
+        </div>
+      )}
+
+      {/* Driver explanation - emphasized in agreement mode */}
+      {lens === 'agreement' && agreementScore !== null && (
+        <p className="mb-3 text-xs text-foreground/80">{reasonWithFreshness}</p>
+      )}
+
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         {modelEntries.map((entry) => {
           const temp = getNumeric(entry.hour?.temperature);
-          const precip = getNumeric(entry.hour?.precipitationProbability);
+          const precipPop = getNumeric(entry.hour?.precipitationProbability);
+          const precipAmount = getNumeric(entry.hour?.precipitation);
           const wind = getNumeric(entry.hour?.windSpeed);
           const code = getNumeric(entry.hour?.weatherCode);
           const weatherInfo = code !== null ? WEATHER_CODES[code] : null;
@@ -714,7 +790,11 @@ export const ModelHourlyBreakdownPanel = memo(function ModelHourlyBreakdownPanel
           const ageHours = ageSeconds !== null ? ageSeconds / 3600 : null;
           const freshnessTone = getFreshnessTone(ageHours);
           const tempValue = temp !== null ? `${Math.round(temp)}°` : '—';
-          const precipValue = precip !== null ? `${Math.round(precip)}%` : '—';
+          const precipParts = [
+            precipPop !== null ? `${Math.round(precipPop)}% POP` : null,
+            precipAmount !== null ? `${formatMmPerHourShort(precipAmount)} mm/hr` : null
+          ].filter((part): part is string => Boolean(part));
+          const precipValue = precipParts.length > 0 ? precipParts.join(' · ') : '—';
           const windValue = wind !== null ? `${Math.round(wind)} km/h` : '—';
           const tempOutlierStyle = tempOutlier?.name === entry.name
             ? buildOutlierStyle(tempOutlier.ratio, 0.3)
@@ -734,7 +814,7 @@ export const ModelHourlyBreakdownPanel = memo(function ModelHourlyBreakdownPanel
           return (
             <div
               key={entry.name}
-              className="rounded-lg bg-[oklch(0.12_0.02_240)] px-3 py-2 text-foreground/90"
+              className="rounded-lg bg-background px-3 py-2 text-foreground/90"
               style={cardStyle}
             >
               <div className="flex items-center justify-between">
@@ -745,7 +825,22 @@ export const ModelHourlyBreakdownPanel = memo(function ModelHourlyBreakdownPanel
                   />
                   <span className="font-medium">{entry.name}</span>
                 </div>
-                <span className={`h-2 w-2 rounded-full ${freshnessToneClass[freshnessTone]}`} />
+                {/* Freshness indicator - more prominent in freshness mode */}
+                <div className={cn(
+                  'flex items-center gap-1.5',
+                  lens === 'freshness' && 'bg-white/[0.04] rounded-full px-2 py-0.5'
+                )}>
+                  <span className={cn(
+                    'rounded-full',
+                    lens === 'freshness' ? 'h-2.5 w-2.5' : 'h-2 w-2',
+                    freshnessToneClass[freshnessTone]
+                  )} />
+                  {lens === 'freshness' && (
+                    <span className="text-[10px] text-foreground/70 font-mono tabular-nums">
+                      {ageShort}
+                    </span>
+                  )}
+                </div>
               </div>
               <div className="mt-1 text-[10px] text-foreground/60">
                 {entry.runAvailabilityTime !== null ? (
@@ -778,28 +873,50 @@ export const ModelHourlyBreakdownPanel = memo(function ModelHourlyBreakdownPanel
                 )}
               </div>
               <div
-                className="mt-2 rounded-md px-2 py-1 font-mono text-base tabular-nums"
+                className={cn(
+                  "mt-2 rounded-md px-2 py-1 font-mono text-base tabular-nums",
+                  lens === 'agreement' && driverMetric === 'temperature' && 'border-l-2 border-[oklch(0.75_0.18_85/50%)]'
+                )}
                 style={tempOutlierStyle}
               >
                 {tempValue}
               </div>
               <div className="mt-2 space-y-1 text-[11px] text-foreground/70">
                 <div
-                  className="flex items-center justify-between rounded-md bg-white/[0.02] px-2 py-1"
+                  className={cn(
+                    "flex items-center justify-between rounded-md bg-white/[0.02] px-2 py-1",
+                    lens === 'agreement' && driverMetric === 'precipitation' && 'border-l-2 border-[oklch(0.75_0.18_85/50%)]'
+                  )}
                   style={precipOutlierStyle}
                 >
                   <span>Precip</span>
                   <span className="font-mono tabular-nums">{precipValue}</span>
                 </div>
                 <div
-                  className="flex items-center justify-between rounded-md bg-white/[0.02] px-2 py-1"
+                  className={cn(
+                    "flex items-center justify-between rounded-md bg-white/[0.02] px-2 py-1",
+                    lens === 'agreement' && driverMetric === 'wind' && 'border-l-2 border-[oklch(0.75_0.18_85/50%)]'
+                  )}
                   style={windOutlierStyle}
                 >
-                  <span>Wind</span>
+                  <div className="flex items-center gap-1">
+                    <span>Wind</span>
+                    {Number.isFinite(entry.hour?.windDirection) && (
+                      <ArrowUp
+                        className="w-3 h-3 opacity-80"
+                        style={{
+                          transform: `rotate(${(entry.hour?.windDirection ?? 0) + 180}deg)`
+                        }}
+                      />
+                    )}
+                  </div>
                   <span className="font-mono tabular-nums">{windValue}</span>
                 </div>
                 <div
-                  className="flex items-center justify-between rounded-md bg-white/[0.02] px-2 py-1"
+                  className={cn(
+                    "flex items-center justify-between rounded-md bg-white/[0.02] px-2 py-1",
+                    lens === 'agreement' && driverMetric === 'conditions' && 'border-l-2 border-[oklch(0.75_0.18_85/50%)]'
+                  )}
                   style={conditionOutlierStyle}
                 >
                   <span>Cond</span>
@@ -817,7 +934,10 @@ export const ModelHourlyBreakdownPanel = memo(function ModelHourlyBreakdownPanel
             Temp Δ {tempSpread !== null ? `${Math.round(tempSpread)}°` : '—'}
           </span>
           <span className="rounded-full bg-white/[0.04] px-2 py-1 text-[10px] font-mono text-foreground/70">
-            Precip Δ {precipSpread !== null ? `${Math.round(precipSpread)}%` : '—'}
+            POP Δ {precipPopSpread !== null ? `${Math.round(precipPopSpread)}%` : '—'}
+          </span>
+          <span className="rounded-full bg-white/[0.04] px-2 py-1 text-[10px] font-mono text-foreground/70">
+            Amt Δ {precipAmountSpread !== null ? `${formatMmPerHourShort(precipAmountSpread)} mm/hr` : '—'}
           </span>
           <span className="rounded-full bg-white/[0.04] px-2 py-1 text-[10px] font-mono text-foreground/70">
             Wind Δ {windSpread !== null ? `${Math.round(windSpread)} km/h` : '—'}
@@ -827,6 +947,181 @@ export const ModelHourlyBreakdownPanel = memo(function ModelHourlyBreakdownPanel
     </div>
   );
 });
+
+const HourlyForecastRow = memo(function HourlyForecastRow({
+  hour,
+  hourIndex,
+  displayTime,
+  isActive,
+  isMobile,
+  hasModelData,
+  forecasts,
+  timezone,
+  onToggle
+}: {
+  hour: HourlyConsensus;
+  hourIndex: number;
+  displayTime: string;
+  isActive: boolean;
+  isMobile: boolean;
+  hasModelData: boolean;
+  forecasts: ModelForecast[];
+  timezone?: string;
+  onToggle: (time: string) => void;
+}) {
+  const weatherInfo = WEATHER_CODES[hour.weatherCode.dominant] || { description: 'Unknown', icon: '❓' };
+  const agreementScore = Number.isFinite(hour.overallAgreement) ? hour.overallAgreement : 0;
+  const borderClass = getAgreementBorder(agreementScore);
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, x: -20 }}
+      animate={{ opacity: 1, x: 0 }}
+      transition={{ delay: hourIndex * 0.05 }}
+      className={`p-3 rounded-lg border ${borderClass} bg-white/[0.02] hover:bg-white/[0.04] transition-colors sm:flex sm:flex-wrap sm:items-start sm:gap-4 sm:gap-y-3`}
+    >
+      <div className="flex items-center gap-3 sm:gap-4 min-w-0">
+        {/* Time */}
+        <div className="w-16 shrink-0 sm:w-20">
+          <p className="font-medium truncate">{displayTime}</p>
+        </div>
+
+        {/* Weather icon */}
+        <div className="w-10 shrink-0 text-center text-xl sm:w-12">
+          {weatherInfo.icon}
+        </div>
+
+        {/* Temperature */}
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2">
+            <span className="font-mono font-semibold text-lg">
+              {Math.round(hour.temperature.mean)}°
+            </span>
+          </div>
+          <p className="text-xs text-foreground/80 truncate">
+            {weatherInfo.description}
+          </p>
+        </div>
+      </div>
+
+      {/* Secondary stats */}
+      <div className="mt-3 flex items-center justify-between gap-3 sm:mt-0 sm:ml-auto sm:justify-end sm:gap-6">
+        {/* Precipitation */}
+        <div className="text-left sm:w-24 sm:text-center">
+          <p className="font-mono text-sm whitespace-nowrap">
+            {hour.precipitationProbability.available === false
+              ? '—'
+              : `${Math.round(hour.precipitationProbability.mean)}%`}
+          </p>
+          <p className="text-xs text-foreground/80 whitespace-nowrap">
+            Precip
+            {hour.precipitation.available === false
+              ? ''
+              : ` · ${formatMmPerHourShort(hour.precipitation.mean)} mm/hr`}
+          </p>
+        </div>
+
+        {/* Wind */}
+        <div className="hidden sm:block w-20 text-center">
+          <p className="font-mono text-sm whitespace-nowrap">
+            {Math.round(hour.windSpeed.mean)} km/h
+          </p>
+          <p className="text-xs text-foreground/80">Wind</p>
+        </div>
+
+        {/* Agreement indicator */}
+        <div className="text-right sm:w-20">
+          <div className="flex items-center justify-end gap-2">
+            <div className={`w-2 h-2 rotate-45 ${getAgreementColor(agreementScore)}`} />
+            <span className="font-mono text-sm whitespace-nowrap">{Math.round(agreementScore)}%</span>
+          </div>
+          <p className="text-xs text-foreground/80">Agreement</p>
+        </div>
+
+        {hasModelData && (
+          <div className="text-right sm:w-20">
+            <button
+              type="button"
+              onClick={() => onToggle(hour.time)}
+              className="inline-flex items-center gap-1 text-xs text-foreground/70 hover:text-foreground"
+              aria-expanded={isActive}
+              aria-controls={`hourly-breakdown-${hour.time}`}
+            >
+              <ModelBadgeIcon open={isActive} className={isActive ? 'opacity-100' : 'opacity-70'} />
+            </button>
+          </div>
+        )}
+      </div>
+
+      {isActive && !isMobile && (
+        <motion.div
+          id={`hourly-breakdown-${hour.time}`}
+          initial={{ opacity: 0, y: -6 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.2 }}
+          className="mt-3 w-full"
+        >
+          <ModelHourlyBreakdownPanel
+            hour={hour}
+            forecasts={forecasts}
+            timezone={timezone}
+          />
+        </motion.div>
+      )}
+    </motion.div>
+  );
+});
+
+const HourlyForecastView = memo(function HourlyForecastView({
+  hourly,
+  forecasts,
+  timezone,
+  isMobile,
+  onToggle,
+  expandedTime
+}: {
+  hourly: HourlyConsensus[];
+  forecasts: ModelForecast[];
+  timezone?: string;
+  isMobile: boolean;
+  onToggle: (time: string) => void;
+  expandedTime: string | null;
+}) {
+  const hasModelData = forecasts.length > 0;
+  // Show next 24 hours
+  const displayHours = hourly.slice(0, 24);
+
+  return (
+    <div className="space-y-3">
+      {displayHours.map((hour, index) => {
+        const date = new Date(hour.time);
+        const displayTime = new Intl.DateTimeFormat('en-CA', {
+          hour: 'numeric',
+          minute: '2-digit',
+          timeZone: timezone
+        }).format(date);
+
+        const isActive = expandedTime === hour.time;
+
+        return (
+          <HourlyForecastRow
+            key={hour.time}
+            hour={hour}
+            hourIndex={index}
+            displayTime={displayTime}
+            isActive={isActive}
+            isMobile={isMobile}
+            hasModelData={hasModelData}
+            forecasts={forecasts}
+            timezone={timezone}
+            onToggle={onToggle}
+          />
+        );
+      })}
+    </div>
+  );
+});
+
 
 const DailyForecastRow = memo(function DailyForecastRow({
   day,
@@ -928,14 +1223,7 @@ const DailyForecastRow = memo(function DailyForecastRow({
               aria-expanded={isActive}
               aria-controls={`model-breakdown-${day.date}`}
             >
-              <span className="hidden sm:inline">Models</span>
-              <span className="sm:hidden">4 models</span>
-              <ChevronDownIcon
-                className={cn(
-                  'h-3 w-3 transition-transform',
-                  isActive && 'rotate-180'
-                )}
-              />
+              <ModelBadgeIcon open={isActive} className={isActive ? 'opacity-100' : 'opacity-70'} />
             </button>
           </div>
         )}
@@ -963,13 +1251,17 @@ const DailyForecastRow = memo(function DailyForecastRow({
 
 export function DailyForecast({
   daily,
+  hourly,
   forecasts,
   showAgreement = true,
   timezone
 }: DailyForecastProps) {
+  const [activeTab, setActiveTab] = useState<'daily' | 'hourly'>('daily');
   const [expandedDate, setExpandedDate] = useState<string | null>(null);
+  const [expandedTime, setExpandedTime] = useState<string | null>(null);
   const isMobile = useMediaQuery('(max-width: 639px)');
   const hasModelData = forecasts.length > 0;
+
   const formatDate = (dateStr: string) => {
     const dateParts = parseOpenMeteoDate(dateStr);
     if (!dateParts) return dateStr;
@@ -990,45 +1282,97 @@ export function DailyForecast({
     return formatCalendarDate(dateParts);
   };
 
-  const handleToggle = useCallback((date: string) => {
+  const handleDateToggle = useCallback((date: string) => {
     setExpandedDate((prev) => (prev === date ? null : date));
+  }, []);
+
+  const handleTimeToggle = useCallback((time: string) => {
+    setExpandedTime((prev) => (prev === time ? null : time));
   }, []);
 
   const expandedIndex = useMemo(() => (
     expandedDate ? daily.findIndex((day) => day.date === expandedDate) : -1
   ), [daily, expandedDate]);
+
   const expandedDay = expandedIndex >= 0 ? daily[expandedIndex] : null;
+
+  const expandedHour = useMemo(() => (
+    expandedTime && hourly ? hourly.find((h) => h.time === expandedTime) : null
+  ), [hourly, expandedTime]);
 
   return (
     <div className="glass-card p-4 sm:p-6 readable-text">
-      <h2 className="text-xl font-semibold mb-4">7-Day Forecast</h2>
-      
-      <div className="space-y-3">
-        {daily.map((day, index) => {
-          const displayDate = formatDate(day.date);
-          const isActive = expandedDate === day.date;
-          const isExpanded = !isMobile && isActive;
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-xl font-semibold">Forecast</h2>
 
-          return (
-            <DailyForecastRow
-              key={day.date}
-              day={day}
-              dayIndex={index}
-              displayDate={displayDate}
-              showAgreement={showAgreement}
-              isExpanded={isExpanded}
-              isActive={isActive}
-              isMobile={isMobile}
-              hasModelData={hasModelData}
-              forecasts={forecasts}
-              timezone={timezone}
-              onToggle={handleToggle}
-            />
-          );
-        })}
+        <div className="flex p-1 bg-white/[0.04] rounded-lg">
+          <button
+            onClick={() => setActiveTab('daily')}
+            className={cn(
+              "px-3 py-1 text-xs font-medium rounded-md transition-all",
+              activeTab === 'daily'
+                ? "bg-white/10 text-foreground shadow-sm"
+                : "text-foreground/60 hover:text-foreground/80"
+            )}
+          >
+            7-Day
+          </button>
+          <button
+            onClick={() => setActiveTab('hourly')}
+            disabled={!hourly || hourly.length === 0}
+            className={cn(
+              "px-3 py-1 text-xs font-medium rounded-md transition-all",
+              activeTab === 'hourly'
+                ? "bg-white/10 text-foreground shadow-sm"
+                : "text-foreground/60 hover:text-foreground/80",
+              (!hourly || hourly.length === 0) && "opacity-50 cursor-not-allowed"
+            )}
+          >
+            Hourly
+          </button>
+        </div>
       </div>
 
-      {isMobile && expandedDay && (
+      {activeTab === 'daily' ? (
+        <div className="space-y-3">
+          {daily.map((day, index) => {
+            const displayDate = formatDate(day.date);
+            const isActive = expandedDate === day.date;
+            const isExpanded = !isMobile && isActive;
+
+            return (
+              <DailyForecastRow
+                key={day.date}
+                day={day}
+                dayIndex={index}
+                displayDate={displayDate}
+                showAgreement={showAgreement}
+                isExpanded={isExpanded}
+                isActive={isActive}
+                isMobile={isMobile}
+                hasModelData={hasModelData}
+                forecasts={forecasts}
+                timezone={timezone}
+                onToggle={handleDateToggle}
+              />
+            );
+          })}
+        </div>
+      ) : (
+        hourly && (
+          <HourlyForecastView
+            hourly={hourly}
+            forecasts={forecasts}
+            timezone={timezone}
+            isMobile={isMobile}
+            onToggle={handleTimeToggle}
+            expandedTime={expandedTime}
+          />
+        )
+      )}
+
+      {/* Mobile Drawers */}
+      {isMobile && expandedDay && activeTab === 'daily' && (
         <Drawer
           open={Boolean(expandedDay)}
           onOpenChange={(open) => {
@@ -1064,20 +1408,63 @@ export function DailyForecast({
           </DrawerContent>
         </Drawer>
       )}
-      
+
+      {isMobile && expandedHour && activeTab === 'hourly' && (
+        <Drawer
+          open={Boolean(expandedHour)}
+          onOpenChange={(open) => {
+            if (!open) setExpandedTime(null);
+          }}
+        >
+          <DrawerContent className="glass-card border border-white/10 text-foreground/90">
+            <DrawerHeader className="pb-2">
+              <div className="flex items-center justify-between">
+                <div>
+                  <DrawerTitle className="text-base">Hourly Breakdown</DrawerTitle>
+                  <DrawerDescription className="text-foreground/70 text-xs">
+                    {new Intl.DateTimeFormat('en-CA', {
+                      hour: 'numeric',
+                      minute: '2-digit',
+                      timeZone: timezone,
+                      weekday: 'short',
+                      month: 'short',
+                      day: 'numeric'
+                    }).format(new Date(expandedHour.time))}
+                  </DrawerDescription>
+                </div>
+                <DrawerClose asChild>
+                  <button
+                    type="button"
+                    className="text-xs text-foreground/70 hover:text-foreground underline underline-offset-2"
+                  >
+                    Close
+                  </button>
+                </DrawerClose>
+              </div>
+            </DrawerHeader>
+            <ModelHourlyBreakdownPanel
+              hour={expandedHour}
+              forecasts={forecasts}
+              timezone={timezone}
+              className="mx-4 mb-4"
+            />
+          </DrawerContent>
+        </Drawer>
+      )}
+
       {/* Legend */}
-      {showAgreement && (
+      {showAgreement && activeTab === 'daily' && (
         <div className="flex flex-wrap items-center justify-start sm:justify-end gap-4 mt-4 pt-4 border-t border-white/10">
           <div className="flex items-center gap-2">
-            <div className="w-2 h-2 rotate-45 bg-[oklch(0.72_0.19_160)]" />
+            <div className="w-2 h-2 rotate-45 bg-agreement-high" />
             <span className="text-xs text-foreground/80">High Agreement</span>
           </div>
           <div className="flex items-center gap-2">
-            <div className="w-2 h-2 rotate-45 bg-[oklch(0.75_0.18_85)]" />
+            <div className="w-2 h-2 rotate-45 bg-agreement-medium" />
             <span className="text-xs text-foreground/80">Moderate</span>
           </div>
           <div className="flex items-center gap-2">
-            <div className="w-2 h-2 rotate-45 bg-[oklch(0.65_0.22_25)]" />
+            <div className="w-2 h-2 rotate-45 bg-agreement-low" />
             <span className="text-xs text-foreground/80">Low</span>
           </div>
         </div>

@@ -1,0 +1,378 @@
+/**
+ * Weather Forecast CDN — Client Vault (IndexedDB Store)
+ *
+ * Local storage for content-addressed artifacts on the device.
+ * This is the client's canonical database.
+ */
+
+import { hashHex, verifyHash } from '@cdn/hash';
+import type { Artifact, DailyManifest } from '@cdn/types';
+import { unpackageArtifact, getBlobContentHash } from '@cdn/artifact';
+import { unpackageManifest } from '@cdn/manifest';
+
+// =============================================================================
+// Database Schema
+// =============================================================================
+
+const DB_NAME = 'weather-vault-v2';
+const DB_VERSION = 1;
+const STORE_BLOBS = 'blobs';       // Raw blobs keyed by hash
+const STORE_META = 'meta';         // Local metadata (lastSync, etc.)
+const META_MANIFEST_INDEX = 'manifest-index';
+
+// =============================================================================
+// Vault Class
+// =============================================================================
+
+export class Vault {
+    private db: IDBDatabase | null = null;
+    private opening: Promise<IDBDatabase> | null = null;
+
+    /**
+     * Open the vault database.
+     */
+    async open(): Promise<void> {
+        if (this.db) return;
+        if (this.opening) {
+            await this.opening;
+            return;
+        }
+
+        this.opening = new Promise((resolve, reject) => {
+            const request = indexedDB.open(DB_NAME, DB_VERSION);
+
+            request.onerror = () => reject(request.error);
+            request.onsuccess = () => {
+                this.db = request.result;
+                resolve(request.result);
+            };
+
+            request.onupgradeneeded = (event) => {
+                const db = (event.target as IDBOpenDBRequest).result;
+
+                // Blobs store: key is hash, value is Uint8Array
+                if (!db.objectStoreNames.contains(STORE_BLOBS)) {
+                    db.createObjectStore(STORE_BLOBS);
+                }
+
+                // Meta store: arbitrary metadata
+                if (!db.objectStoreNames.contains(STORE_META)) {
+                    db.createObjectStore(STORE_META);
+                }
+            };
+        });
+
+        await this.opening;
+        this.opening = null;
+    }
+
+    /**
+     * Check if a blob exists by hash.
+     */
+    async has(hash: string): Promise<boolean> {
+        await this.open();
+        return new Promise((resolve, reject) => {
+            const tx = this.db!.transaction(STORE_BLOBS, 'readonly');
+            const store = tx.objectStore(STORE_BLOBS);
+            const request = store.getKey(hash);
+
+            request.onerror = () => reject(request.error);
+            request.onsuccess = () => resolve(request.result !== undefined);
+        });
+    }
+
+    /**
+     * Store a blob with verification.
+     * The blob is verified against its expected hash before storing.
+     */
+    async put(expectedHash: string, blob: Uint8Array): Promise<void> {
+        await this.open();
+
+        // Verify hash
+        const actualHash = getBlobContentHash(blob);
+        if (actualHash !== expectedHash.toLowerCase()) {
+            throw new Error(`Hash mismatch: expected ${expectedHash}, got ${actualHash}`);
+        }
+
+        return new Promise((resolve, reject) => {
+            const tx = this.db!.transaction(STORE_BLOBS, 'readwrite');
+            const store = tx.objectStore(STORE_BLOBS);
+            const request = store.put(blob, expectedHash);
+
+            request.onerror = () => reject(request.error);
+            request.onsuccess = () => resolve();
+        });
+    }
+
+    /**
+     * Get a raw blob by hash.
+     */
+    async getBlob(hash: string): Promise<Uint8Array | null> {
+        await this.open();
+        return new Promise((resolve, reject) => {
+            const tx = this.db!.transaction(STORE_BLOBS, 'readonly');
+            const store = tx.objectStore(STORE_BLOBS);
+            const request = store.get(hash);
+
+            request.onerror = () => reject(request.error);
+            request.onsuccess = () => resolve(request.result ?? null);
+        });
+    }
+
+    /**
+     * Get and unpackage an artifact by hash.
+     */
+    async getArtifact(hash: string): Promise<Artifact | null> {
+        const blob = await this.getBlob(hash);
+        if (!blob) return null;
+        return unpackageArtifact(blob);
+    }
+
+    /**
+     * Get and unpackage a manifest by hash.
+     */
+    async getManifest(hash: string): Promise<DailyManifest | null> {
+        const blob = await this.getBlob(hash);
+        if (!blob) return null;
+        return unpackageManifest(blob);
+    }
+
+    /**
+     * Get all blob hashes in the vault.
+     */
+    async getAllHashes(): Promise<string[]> {
+        await this.open();
+        return new Promise((resolve, reject) => {
+            const tx = this.db!.transaction(STORE_BLOBS, 'readonly');
+            const store = tx.objectStore(STORE_BLOBS);
+            const request = store.getAllKeys();
+
+            request.onerror = () => reject(request.error);
+            request.onsuccess = () => resolve(request.result as string[]);
+        });
+    }
+
+    /**
+     * Get metadata value.
+     */
+    async getMeta<T>(key: string): Promise<T | null> {
+        await this.open();
+        return new Promise((resolve, reject) => {
+            const tx = this.db!.transaction(STORE_META, 'readonly');
+            const store = tx.objectStore(STORE_META);
+            const request = store.get(key);
+
+            request.onerror = () => reject(request.error);
+            request.onsuccess = () => resolve(request.result ?? null);
+        });
+    }
+
+    /**
+     * Set metadata value.
+     */
+    async setMeta<T>(key: string, value: T): Promise<void> {
+        await this.open();
+        return new Promise((resolve, reject) => {
+            const tx = this.db!.transaction(STORE_META, 'readwrite');
+            const store = tx.objectStore(STORE_META);
+            const request = store.put(value, key);
+
+            request.onerror = () => reject(request.error);
+            request.onsuccess = () => resolve();
+        });
+    }
+
+    /**
+     * Clear all vault stores (for testing).
+     */
+    async clear(): Promise<void> {
+        await this.open();
+        const stores = [STORE_BLOBS, STORE_META];
+
+        for (const storeName of stores) {
+            await new Promise<void>((resolve, reject) => {
+                const tx = this.db!.transaction(storeName, 'readwrite');
+                const store = tx.objectStore(storeName);
+                const request = store.clear();
+                request.onerror = () => reject(request.error);
+                request.onsuccess = () => resolve();
+            });
+        }
+    }
+
+    /**
+     * Get all artifacts for a specific date by looking at synced manifests.
+     */
+    async getArtifactsForDate(date: string, locationScopeId?: string): Promise<Artifact[]> {
+        const indexKey = locationScopeId ? `${META_MANIFEST_INDEX}:${locationScopeId}` : META_MANIFEST_INDEX;
+        const manifestIndex: Record<string, string[]> = await this.getMeta(indexKey) ?? {};
+        const manifestHashes = manifestIndex[date] ?? [];
+        const artifacts: Artifact[] = [];
+
+        for (const hash of manifestHashes) {
+            try {
+                const manifest = await this.getManifest(hash);
+                if (!manifest) continue;
+
+                for (const entry of manifest.artifacts) {
+                    const artifact = await this.getArtifact(entry.hash);
+                    if (artifact) {
+                        artifacts.push(artifact);
+                    }
+                }
+            } catch (error) {
+                console.warn(`Failed to retrieve artifacts for manifest ${hash}:`, error);
+            }
+        }
+
+        return artifacts;
+    }
+
+    /**
+     * Delete blobs older than a certain date (for pruning).
+     * Note: This requires walking all blobs and checking their metadata.
+     */
+    async pruneOlderThan(cutoffDate: Date): Promise<number> {
+        const allHashes = await this.getAllHashes();
+        let pruned = 0;
+
+        for (const hash of allHashes) {
+            try {
+                const artifact = await this.getArtifact(hash);
+                if (!artifact) continue;
+
+                // Determine artifact date
+                let artifactDate: Date | null = null;
+                if (artifact.type === 'forecast' && 'runTime' in artifact) {
+                    artifactDate = new Date(artifact.runTime);
+                } else if (artifact.type === 'observation' && 'observedAtBucket' in artifact) {
+                    artifactDate = new Date(artifact.observedAtBucket);
+                }
+
+                if (artifactDate && artifactDate < cutoffDate) {
+                    await this.deleteBlob(hash);
+                    pruned++;
+                }
+            } catch (error) {
+                // Skip corrupted or unparseable blobs
+                console.warn(`Failed to process ${hash}:`, error);
+            }
+        }
+
+        return pruned;
+    }
+
+    /**
+     * Delete a blob by hash.
+     */
+    /**
+     * Delete a blob by hash (Idempotent).
+     * Returns resolved void if deleted or already missing.
+     * Rejects only on DB error.
+     */
+    async delete(hash: string): Promise<void> {
+        await this.open();
+        return new Promise((resolve, reject) => {
+            const tx = this.db!.transaction(STORE_BLOBS, 'readwrite');
+            const store = tx.objectStore(STORE_BLOBS);
+            const request = store.delete(hash); // delete() is success even if key missing
+
+            request.onerror = () => reject(request.error);
+            request.onsuccess = () => resolve();
+        });
+    }
+
+    /**
+     * Delete a blob by hash (legacy alias, now just calls delete).
+     */
+    private async deleteBlob(hash: string): Promise<void> {
+        return this.delete(hash);
+    }
+
+    /**
+     * Check if a blob exists (Lightweight).
+     * Returns existence and size if available.
+     */
+    async stat(hash: string): Promise<{ exists: boolean; size?: number }> {
+        await this.open();
+
+        // For IndexedDB, checking key existence is fast.
+        // To get size, we might need to fetch the blob or cursor.
+        // 'getKey' is cheapest check.
+        // But we want size for reconciliation.
+        // Optimization: Use a cursor to get value without loading into memory?
+        // IDB 'get' loads the whole object.
+        // IDB 'openKeyCursor' doesn't give size.
+        // If we store Blobs, we have to load it to read .size property unless we stored metadata alongside.
+        // We do NOT store metadata in STORE_BLOBS (values are raw Blobs/ArrayBuffers).
+
+        return new Promise((resolve, reject) => {
+            const tx = this.db!.transaction(STORE_BLOBS, 'readonly');
+            const store = tx.objectStore(STORE_BLOBS);
+            const request = store.get(hash);
+
+            request.onerror = () => reject(request.error);
+            request.onsuccess = () => {
+                const result = request.result;
+                if (!result) {
+                    resolve({ exists: false });
+                } else {
+                    // It's a Blob or ArrayBuffer
+                    let size = 0;
+                    if (result instanceof Blob) {
+                        size = result.size;
+                    } else if (result instanceof ArrayBuffer) {
+                        size = result.byteLength;
+                    } else if (ArrayBuffer.isView(result)) {
+                        size = result.byteLength;
+                    }
+                    resolve({ exists: true, size });
+                }
+            };
+        });
+    }
+
+    /**
+     * Close the database connection.
+     */
+    close(): void {
+        if (this.db) {
+            this.db.close();
+            this.db = null;
+        }
+    }
+
+    /**
+     * Get vault statistics.
+     */
+    async getStats(): Promise<{ blobCount: number; estimatedSizeBytes: number }> {
+        const allHashes = await this.getAllHashes();
+        let totalSize = 0;
+
+        for (const hash of allHashes.slice(0, 100)) {
+            // Sample first 100 for size estimate
+            const blob = await this.getBlob(hash);
+            if (blob) totalSize += blob.length;
+        }
+
+        const avgSize = allHashes.length > 0 ? totalSize / Math.min(allHashes.length, 100) : 0;
+
+        return {
+            blobCount: allHashes.length,
+            estimatedSizeBytes: Math.round(avgSize * allHashes.length)
+        };
+    }
+}
+
+// =============================================================================
+// Singleton Instance
+// =============================================================================
+
+let vaultInstance: Vault | null = null;
+
+export function getVault(): Vault {
+    if (!vaultInstance) {
+        vaultInstance = new Vault();
+    }
+    return vaultInstance;
+}

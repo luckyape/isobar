@@ -2,7 +2,7 @@
 
 ## Executive Summary
 
-Weather Consensus is a Progressive Web Application that aggregates weather forecasts from multiple meteorological models and provides users with a confidence score indicating the degree of agreement between models. This design addresses a critical gap in weather forecasting: while individual weather models are sophisticated, they often diverge significantly in their predictions, especially for uncertain weather patterns. By presenting consensus metrics alongside individual model forecasts, users with mission-critical weather considerations—such as event planners, outdoor workers, emergency responders, and aviation professionals—can make informed decisions based on forecast reliability rather than blindly trusting a single model.
+Weather Consensus is a Progressive Web Application that aggregates weather forecasts from multiple meteorological models and provides users with an agreement score indicating the degree of alignment between models. This design addresses a critical gap in weather forecasting: while individual weather models are sophisticated, they often diverge significantly in their predictions, especially for uncertain weather patterns. By presenting consensus metrics alongside individual model forecasts, users with mission-critical weather considerations—such as event planners, outdoor workers, emergency responders, and aviation professionals—can make informed decisions based on forecast reliability rather than blindly trusting a single model.
 
 ---
 
@@ -20,7 +20,7 @@ Each model uses different physics, initialization data, and computational method
 
 **Current user experience:** Most weather apps show a single forecast, often without indicating the underlying uncertainty. Users don't know if the forecast is highly confident or speculative.
 
-**Weather Consensus solution:** Aggregate all available models, normalize their outputs, calculate agreement metrics, and present both the consensus forecast and individual model predictions with visual confidence indicators.
+**Weather Consensus solution:** Aggregate all available models, normalize their outputs, calculate agreement metrics, and present both the consensus forecast and individual model predictions with visual agreement indicators.
 
 ### 1.2 Design Philosophy: Scandinavian Functionalism Meets Data Visualization
 
@@ -35,7 +35,7 @@ The application adopts **Arctic Data Observatory** aesthetic—a fusion of:
 2. **Data Visualization Art**
    - Aurora-inspired color palette (arctic blues, cyan, teal)
    - Subtle gradients and depth effects (frosted glass cards)
-   - Animated gauge for confidence scoring
+   - Animated gauge for agreement scoring
    - Multi-line charts showing model agreement bands
 
 3. **Canadian Context**
@@ -119,29 +119,51 @@ For each time step (hour) and day, the application calculates:
 
 **Temperature Agreement:**
 ```
-stdDev = standard deviation of all model temperatures
-agreement_score = 100 × (1 - (stdDev / expected_range))
-expected_range = 10°C (typical model spread for temperature)
+stdDev = population standard deviation of all model temperatures
+spread_estimate = 2 × stdDev
+agreement_score = clamp(100 × (1 - (spread_estimate / expected_spread)), 0, 100)
+expected_spread = 10°C (typical max-to-min model spread for temperature)
 ```
 
 **Precipitation Agreement:**
 ```
-stdDev = standard deviation of precipitation amounts
-agreement_score = 100 × (1 - (stdDev / expected_range))
-expected_range = 5mm (typical model spread)
+// Amount agreement (hourly: mm/hr, daily: mm/day)
+stdDev_amount = population standard deviation of precipitation amounts
+spread_estimate_amount = 2 × stdDev_amount
+amount_agreement = clamp(100 × (1 - (spread_estimate_amount / expected_spread_amount)), 0, 100)
+
+// Probability agreement (hourly POP %, daily max POP %)
+stdDev_pop = population standard deviation of precipitation probabilities
+spread_estimate_pop = 2 × stdDev_pop
+pop_agreement = clamp(100 × (1 - (spread_estimate_pop / expected_spread_pop)), 0, 100)
+
+// Combined precipitation agreement (used in overall scores)
+precip_agreement = (0.5 × amount_agreement) + (0.5 × pop_agreement)
+expected_spread_amount = 5mm/hr (hourly) or 15mm/day (daily)
+expected_spread_pop = 30%
 ```
 
 **Wind Speed Agreement:**
 ```
-stdDev = standard deviation of wind speeds
-agreement_score = 100 × (1 - (stdDev / expected_range))
-expected_range = 15 km/h
+stdDev = population standard deviation of wind speeds
+spread_estimate = 2 × stdDev
+agreement_score = clamp(100 × (1 - (spread_estimate / expected_spread)), 0, 100)
+expected_spread = 15 km/h
 ```
 
 **Wind Direction Agreement (circular):**
 - Uses circular statistics (not linear) because direction wraps at 360°
-- Calculates angular standard deviation
-- Scores agreement based on directional clustering
+- Calculates circular angular standard deviation
+- Uses the same numeric agreement mapping with `expected_spread = 45°`
+- Note: wind-direction agreement is computed for display/debugging but is not currently included in the overall hourly agreement weighting
+
+**Cloud Cover Agreement:**
+```
+stdDev = population standard deviation of cloud cover percentages
+spread_estimate = 2 × stdDev
+agreement_score = clamp(100 × (1 - (spread_estimate / expected_spread)), 0, 100)
+expected_spread = 30% cloud cover
+```
 
 **Weather Condition Agreement:**
 ```
@@ -157,6 +179,7 @@ overall = (0.30 × temp_agreement) +
           (0.15 × condition_agreement) +
           (0.10 × cloud_agreement)
 ```
+Note: In implementation, this is computed as a weighted average across *available* metrics (requires ≥2 model values per metric), with weights renormalized to sum to 1 across the included metrics.
 
 **Overall Daily Agreement:**
 ```
@@ -166,6 +189,11 @@ overall = (0.25 × max_temp_agreement) +
           (0.15 × wind_agreement) +
           (0.10 × condition_agreement)
 ```
+Daily expected spreads (implementation):
+- max temp expected_spread = 8°C
+- min temp expected_spread = 8°C
+- precip sum expected_spread = 15mm/day
+- max wind expected_spread = 20 km/h
 
 **Overall Forecast Agreement (7-day):**
 ```
@@ -174,6 +202,7 @@ overall = (0.35 × avg_temperature_agreement) +
           (0.20 × avg_wind_agreement) +
           (0.15 × avg_condition_agreement)
 ```
+Note: In implementation, this is computed from the daily consensus series and uses the same availability + weight renormalization rules described above.
 
 **Rationale for weighting:**
 - **Temperature (35% overall):** Most important for user planning; most models agree on temperature
@@ -190,35 +219,35 @@ To prevent NaN or misleading outputs, consensus math is hardened:
 
 **Rationale:** Agreement should only be reported when there is enough valid data to compare like-with-like.
 
-### 2.3 Confidence Scoring System
+### 2.3 Agreement Scoring System
 
-**Scope:** The confidence score reflects model alignment only and is not reduced due to model run age. Freshness is reported separately to avoid conflating data quality with forecast agreement.
+**Scope:** The agreement score reflects model alignment only and is not reduced due to model run age. Freshness is reported separately to avoid conflating data quality with forecast agreement.
 
-#### 2.3.1 Confidence Levels
+#### 2.3.1 Agreement Levels
 
 | Score Range | Label | Description | Visual Indicator | Use Case |
 |-------------|-------|-------------|------------------|----------|
-| 75-100 | High Confidence | Models strongly agree; forecast is reliable | Green/Cyan glow | Safe to plan outdoor events, rely on forecast |
-| 50-74 | Moderate Confidence | Some model disagreement; check back for updates | Amber/Yellow glow | Proceed with caution; monitor updates |
-| 0-49 | Low Confidence | Significant disagreement; weather pattern uncertain | Red glow | Don't rely on specific details; prepare for multiple scenarios |
+| 75-100 | High Agreement | Models strongly agree; forecast is reliable | Green/Cyan glow | Safe to plan outdoor events, rely on forecast |
+| 50-74 | Moderate Agreement | Some model disagreement; check back for updates | Amber/Yellow glow | Proceed with caution; monitor updates |
+| 0-49 | Low Agreement | Significant disagreement; weather pattern uncertain | Red glow | Don't rely on specific details; prepare for multiple scenarios |
 
 **Rationale:** Three-tier system balances simplicity with nuance. Users can quickly assess reliability without needing to understand statistical details.
 
-#### 2.3.2 Confidence Gauge Visualization
+#### 2.3.2 Agreement Gauge Visualization
 
-The confidence score is displayed as an animated circular gauge:
+The agreement score is displayed as an animated circular gauge:
 - **Arc fill:** Represents agreement percentage (0-100%)
-- **Color:** Changes based on confidence level (green → amber → red)
+- **Color:** Changes based on agreement level (green → amber → red)
 - **Glow effect:** Aurora-inspired shadow creates visual emphasis
 - **Animation:** Arc animates from 0 to final score when page loads, creating visual feedback
 - **In-card breakdown:** Four compact category rings (icon-only) appear directly under the gauge
-- **Consensus tooltip:** Confidence label + overview sentence appear only on hover/focus of the main gauge
+- **Consensus tooltip:** Agreement label + overview sentence appear only on hover/focus of the main gauge
 
 **Rationale:** Circular gauge is intuitive (like a speedometer or fuel gauge). Animation draws attention and creates sense of data being "calculated in real-time." Color coding leverages universal associations (green=good, red=caution).
 
 #### 2.3.3 Freshness Indicators (Model Run Currency)
 
-Freshness is derived from model run availability times and displayed separately from the confidence score:
+Freshness is derived from model run availability times and displayed separately from the agreement score:
 - **Per-model freshness dots** appear beside the hero gauge
 - **Color thresholds:** <=6h (green), 6-12h (amber), >12h (red), unknown (neutral)
 - **Tooltip:** Uses the shared glass-card tooltip standard; the dot cluster opens a single tooltip with the freshness score (based on oldest run age) and per-model run ages (triangle icon in model color)
@@ -265,15 +294,67 @@ Selected location is saved to browser's localStorage with key `weather-consensus
 - Current temperature (consensus mean; falls back to ECMWF when consensus unavailable)
 - Current weather condition (dominant model prediction; falls back to ECMWF when consensus unavailable)
 - Weather icon (emoji representation)
-- Confidence gauge (animated circular score)
-- Confidence label and description (tooltip on gauge)
+- Agreement gauge (animated circular score)
+- Agreement label and description (tooltip on gauge)
 - Agreement breakdown rings (Temp, Precip, Wind, Conditions) rendered as icon-only mini gauges inside the gauge card
 - Freshness indicators (small dots per model with tooltips)
 - Model status indicators (which models succeeded/failed)
 - Consensus unavailable badge (shown when fallback is in use)
 - Updated time based on latest run availability (location timezone)
 
-**Rationale:** Hero section provides immediate answer to "What's the weather and how confident should I be?" Prominent confidence gauge ensures users see reliability metric before detailed data.
+**Rationale:** Hero section provides immediate answer to "What's the weather and how aligned are the models?" Prominent agreement gauge ensures users see reliability metric before detailed data.
+
+##### 2.5.1.1 Detail Panels (Model & Category)
+
+**Triggers:**
+- **Location caret:** Opens the model breakdown panel (agreement/freshness).
+- **Forecast value caret:** Opens the per-model forecast panel.
+- **Category rings:** Open the category detail panel for the tapped metric (Temperature, Precipitation, Wind, Conditions).
+- **Per-model caret (on category cards):** Opens a per-model drilldown with a dense hour-by-hour “weather bug” view plus chart/table modes.
+
+**Behavior:**
+- **Desktop:** Inline expansion directly under the hero section (no page transitions).
+- **Mobile:** Bottom sheet drawer; same content, same data.
+- Only one detail panel is open at a time; opening a new panel closes the previous one.
+- Keyboard accessible; caret controls are focusable and toggle the panel in place.
+
+**Content rules (visual parity with hero forecast):**
+- Each model uses the same forecast display system as the hero (icon, value, unit, label).
+- Only labeling and subtle tinting differentiate models; layout stays consistent.
+- Deterministic model order: ECMWF, GFS, ICON, GEM, then any extras.
+- **Conditions panel:** Uses the condition label in the primary value slot.
+- **Precipitation panel:** Shows POP as the primary value plus precipitation amount (mm/hr) as a secondary inline value.
+- **Wind panel:** Shows speed with cardinal direction (N/NE/E/SE/S/SW/W/NW).
+
+**Layout:**
+- 2×2 grid on mobile; 4 columns on larger screens.
+- Model label and forecast content stay grouped to preserve scanability.
+
+##### 2.5.1.2 Per-Model Drilldown (Heads-Up / Chart / Table)
+
+**Goal:** Let users drill into the complete set of model-specific data across all categories, without leaving the current context.
+
+**Modes (tabs):**
+- **Heads-Up:** A dense, vertical list of hourly “weather bug” cards for a 48-hour window around “now”.
+- **Chart:** Compact per-category charts (temperature, precipitation, wind, conditions sampling).
+- **Table:** A single hourly table combining all categories (temp, POP/intensity, wind speed/gust/direction, conditions).
+
+**Heads-Up card (HourlyWeatherBugCard) content:**
+- Time label (location timezone) with a “Now” highlight for the current hour
+- Condition icon + short description
+- Temperature (primary)
+- Wind summary (speed + direction; gust when available)
+- Verbose line: POP, precip intensity (`mm/hr`), cloud cover, humidity, pressure
+
+**Visual consistency:**
+- The drilldown is model-scoped; its accent color matches the model color.
+- Current hour is emphasized to anchor scanning.
+
+**Interaction & ergonomics:**
+- On open, the panel auto-scrolls so the current hour is positioned at the top of the list (just under the header).
+- The header is sticky inside the scroll container and includes: model identity, the mode tabs, and the close action.
+- The scroll container uses a subtle themed scrollbar to fit the Arctic UI.
+- Long hour lists are optimized to reduce render cost (content visibility / incremental paint).
 
 #### 2.5.2 48-Hour Temperature Forecast Chart
 
@@ -406,7 +487,7 @@ Precipitation type is determined from WMO weather codes with temperature fallbac
 - Rows with 50-74% agreement: Amber accent
 - Rows with <50% agreement: Red accent
 
-**Rationale:** Table format allows quick scanning of week-long trends. Color coding provides instant visual feedback on forecast confidence. Precipitation and wind are key decision factors for outdoor activities.
+**Rationale:** Table format allows quick scanning of week-long trends. Color coding provides instant visual feedback on forecast agreement. Precipitation and wind are key decision factors for outdoor activities.
 
 #### 2.5.4 Agreement Breakdown Rings (In-Card)
 
@@ -421,7 +502,7 @@ Precipitation type is determined from WMO weather codes with temperature fallbac
 Each ring shows:
 - Small icon centered in the ring
 - Arc length representing the score (0-100)
-- Ring color matches confidence thresholds
+- Ring color matches agreement thresholds
 - Frosted styling consistent with the gauge card
 - Exact values available via tooltip/aria-label
 
@@ -500,7 +581,7 @@ Each card displays:
 1. User opens app (or returns to previously selected location)
 2. App displays Toronto forecast by default (or saved location)
 3. User sees:
-   - Current conditions with confidence gauge
+   - Current conditions with agreement gauge
    - 48-hour temperature chart
    - 7-day forecast with agreement indicators
    - Agreement breakdown rings (in-card)
@@ -528,7 +609,7 @@ Each card displays:
 
 ### 3.3 Advanced Workflow: Analyze Model Disagreement
 
-1. User notices low confidence score (e.g., 35%)
+1. User notices low agreement score (e.g., 35%)
 2. User checks the in-card Agreement Breakdown rings under the overall score to see which metrics are problematic
 3. User scrolls to 48-hour chart to visualize model spread
 4. User scrolls to Individual Model Cards to see which models diverge
@@ -562,7 +643,7 @@ Each card displays:
 {
   time: string              // ISO 8601 local timestamp (no offset; use location timezone)
   temperature: number       // Celsius
-  precipitation: number     // mm
+  precipitation: number     // mm/hr
   precipitationProbability: number  // 0-100%
   windSpeed: number         // km/h
   windDirection: number     // 0-360 degrees
@@ -580,7 +661,7 @@ Each card displays:
   date: string              // YYYY-MM-DD (local date in location timezone)
   temperatureMax: number    // Celsius
   temperatureMin: number    // Celsius
-  precipitationSum: number  // mm
+  precipitationSum: number  // mm/day
   precipitationProbabilityMax: number  // 0-100%
   windSpeedMax: number      // km/h
   windGustsMax: number      // km/h
@@ -704,9 +785,9 @@ Weather Consensus App
 | Card | Frosted | oklch(0.16 0.025 240 / 80%) | Card backgrounds with transparency |
 | Primary | Arctic Cyan | oklch(0.75 0.15 195) | Buttons, highlights, GEM model |
 | Accent | Aurora Teal | oklch(0.78 0.18 180) | Interactive elements |
-| Success | Aurora Green | oklch(0.72 0.19 160) | High confidence (75%+) |
-| Warning | Aurora Amber | oklch(0.75 0.18 85) | Moderate confidence (50-74%) |
-| Danger | Aurora Red | oklch(0.65 0.22 25) | Low confidence (<50%) |
+| Success | Aurora Green | oklch(0.72 0.19 160) | High agreement (75%+) |
+| Warning | Aurora Amber | oklch(0.75 0.18 85) | Moderate agreement (50-74%) |
+| Danger | Aurora Red | oklch(0.65 0.22 25) | Low agreement (<50%) |
 | Border | Subtle | oklch(0.30 0.03 240 / 50%) | Card borders |
 
 **Rationale:** OKLCH color space chosen for perceptual uniformity. Colors are inspired by Arctic aurora and Canadian landscapes. Transparency on cards creates "frosted glass" effect, suggesting data layers.
@@ -765,7 +846,7 @@ Weather Consensus App
 - **Interaction:** No zoom/pan (keep simple for mobile)
 
 #### Agreement Indicators
-- **Color coding:** Rings use the same confidence color mapping
+- **Color coding:** Rings use the same agreement color mapping
 - **Animation:** Ring arcs animate from 0 to final sweep on load (1 second)
 - **Placement:** Rings live inside the in-card breakdown area beneath the Confidence Gauge
 
@@ -778,12 +859,12 @@ Weather Consensus App
 
 #### Mobile Optimizations
 - Location dropdown takes full width
-- 7-day forecast follows the hero section; agreement breakdown stays inside the Confidence Gauge as a 2x2 ring grid
+- 7-day forecast follows the hero section; agreement breakdown stays inside the Agreement Gauge as a 2x2 ring grid
 - Model cards display 2 per row (instead of 4)
 - Chart height reduced to fit viewport
 - Touch-friendly button sizes (minimum 44px)
 
-**Rationale:** Mobile users are often checking weather on-the-go. Simplified layout prioritizes key information (current conditions, confidence score, 7-day forecast).
+**Rationale:** Mobile users are often checking weather on-the-go. Simplified layout prioritizes key information (current conditions, agreement score, 7-day forecast).
 
 ---
 
@@ -903,7 +984,7 @@ Weather Consensus App
 ### 7.2 Usability Principles
 
 **Progressive disclosure:**
-- Hero section shows most important info (current conditions, overall confidence, category rings)
+- Hero section shows most important info (current conditions, overall agreement, category rings)
 - Detailed charts below (scroll to see)
 - Individual model cards at bottom (for advanced users)
 

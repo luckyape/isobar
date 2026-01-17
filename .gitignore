@@ -104,3 +104,10 @@ temp/
 *.db
 *.sqlite
 *.sqlite3
+
+# Local dev / tooling state
+.wrangler/
+
+# Local screenshots (repo root)
+/Screenshot*.png
+/caret_crop*.png

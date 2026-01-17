@@ -46,7 +46,7 @@
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
-  
+
   /* Custom Arctic colors */
   --color-arctic: oklch(0.75 0.15 195);
   --color-aurora: oklch(0.78 0.18 180);
@@ -54,7 +54,8 @@
   --color-agreement-high: oklch(0.72 0.19 160);
   --color-agreement-medium: oklch(0.75 0.18 85);
   --color-agreement-low: oklch(0.65 0.22 25);
-  
+  --color-observed: oklch(0.85 0.12 60);
+
   /* Font families */
   --font-display: "Space Grotesk", system-ui, sans-serif;
   --font-body: "Inter", system-ui, sans-serif;
@@ -63,7 +64,7 @@
 
 :root {
   --radius: 0.75rem;
-  
+
   /* Dark theme as default - Arctic Observatory */
   --background: oklch(0.12 0.02 240);
   --foreground: oklch(0.95 0.01 240);
@@ -84,14 +85,14 @@
   --border: oklch(0.30 0.03 240 / 50%);
   --input: oklch(0.25 0.03 240);
   --ring: oklch(0.75 0.15 195);
-  
+
   /* Chart colors for weather models */
   --chart-1: oklch(0.75 0.15 195);
   --chart-2: oklch(0.70 0.16 280);
   --chart-3: oklch(0.72 0.19 160);
   --chart-4: oklch(0.75 0.18 85);
   --chart-5: oklch(0.68 0.20 320);
-  
+
   --sidebar: oklch(0.10 0.02 240);
   --sidebar-foreground: oklch(0.90 0.01 240);
   --sidebar-primary: oklch(0.75 0.15 195);
@@ -110,16 +111,27 @@
   * {
     @apply border-border outline-ring/50;
   }
+
   body {
     @apply bg-background text-foreground;
     font-family: var(--font-body);
   }
-  h1, h2, h3, h4, h5, h6 {
+
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
     font-family: var(--font-display);
   }
-  code, pre, .font-mono {
+
+  code,
+  pre,
+  .font-mono {
     font-family: var(--font-mono);
   }
+
   button:not(:disabled),
   [role="button"]:not([aria-disabled="true"]),
   [type="button"]:not(:disabled),
@@ -161,37 +173,104 @@
       max-width: 1400px;
     }
   }
-  
+
   /* Frosted glass card effect */
   .glass-card {
     @apply bg-card/60 backdrop-blur-xl border border-white/10 rounded-xl;
-    box-shadow: 
+    box-shadow:
       0 4px 24px -4px oklch(0 0 0 / 30%),
       inset 0 1px 0 oklch(1 0 0 / 5%);
   }
-  
+
   /* Aurora glow effect */
   .aurora-glow {
-    box-shadow: 
+    box-shadow:
       0 0 40px -10px oklch(0.75 0.15 195 / 40%),
       0 0 80px -20px oklch(0.78 0.18 180 / 30%);
   }
-  
+
   /* Confidence score colors */
   .confidence-high {
     color: oklch(0.72 0.19 160);
   }
+
   .confidence-medium {
     color: oklch(0.75 0.18 85);
   }
+
   .confidence-low {
     color: oklch(0.65 0.22 25);
   }
-  
+
   /* Data number styling */
   .data-value {
     font-family: var(--font-mono);
     font-variant-numeric: tabular-nums;
+  }
+
+  /* Deep card shadow for hero elements */
+  .shadow-card-deep {
+    box-shadow: 0 24px 60px oklch(0.05 0.01 240 / 45%);
+  }
+
+  /* Agreement color utilities */
+  .text-agreement-high {
+    color: var(--color-agreement-high);
+  }
+
+  .text-agreement-medium {
+    color: var(--color-agreement-medium);
+  }
+
+  .text-agreement-low {
+    color: var(--color-agreement-low);
+  }
+
+  .bg-agreement-high {
+    background-color: var(--color-agreement-high);
+  }
+
+  .bg-agreement-medium {
+    background-color: var(--color-agreement-medium);
+  }
+
+  .bg-agreement-low {
+    background-color: var(--color-agreement-low);
+  }
+
+  /* Agreement border utilities with opacity */
+  .border-agreement-high {
+    border-color: oklch(0.72 0.19 160 / 30%);
+  }
+
+  .border-agreement-medium {
+    border-color: oklch(0.75 0.18 85 / 30%);
+  }
+
+  .border-agreement-low {
+    border-color: oklch(0.65 0.22 25 / 30%);
+  }
+
+  /* Left border utilities for status indicators */
+  .border-l-agreement-high {
+    border-left-color: oklch(0.72 0.19 160);
+  }
+
+  .border-l-agreement-medium {
+    border-left-color: oklch(0.75 0.18 85);
+  }
+
+  .border-l-agreement-low {
+    border-left-color: oklch(0.65 0.22 25);
+  }
+
+  /* Subtle background utilities for card surfaces */
+  .bg-subtle {
+    background-color: oklch(1 0 0 / 2%);
+  }
+
+  .bg-subtle-hover {
+    background-color: oklch(1 0 0 / 4%);
   }
 }
 
@@ -204,34 +283,75 @@
     color: var(--foreground);
   }
 
+  .tracking-caps {
+    letter-spacing: 0.16em;
+  }
+
   .triangle-icon {
     clip-path: polygon(50% 0%, 0% 100%, 100% 100%);
   }
 
+  .content-visibility-auto {
+    content-visibility: auto;
+    contain-intrinsic-size: 0 150px;
+  }
+
+  .scrollbar-arctic {
+    scrollbar-width: thin;
+    scrollbar-color: oklch(0.95 0.01 240 / 0.28) transparent;
+    scrollbar-gutter: stable;
+  }
+
+  .scrollbar-arctic::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  .scrollbar-arctic::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .scrollbar-arctic::-webkit-scrollbar-thumb {
+    background-color: oklch(0.95 0.01 240 / 0.16);
+    border-radius: 9999px;
+    border: 3px solid transparent;
+    background-clip: content-box;
+  }
+
+  .scrollbar-arctic::-webkit-scrollbar-thumb:hover {
+    background-color: oklch(0.75 0.15 195 / 0.3);
+  }
+
   /* Subtle animation for aurora background */
   @keyframes aurora-shift {
-    0%, 100% {
+
+    0%,
+    100% {
       filter: hue-rotate(0deg);
     }
+
     50% {
       filter: hue-rotate(15deg);
     }
   }
-  
+
   .animate-aurora {
     animation: aurora-shift 30s ease-in-out infinite;
   }
-  
+
   /* Pulse animation for updates */
   @keyframes data-pulse {
-    0%, 100% {
+
+    0%,
+    100% {
       opacity: 1;
     }
+
     50% {
       opacity: 0.7;
     }
   }
-  
+
   .animate-data-pulse {
     animation: data-pulse 2s ease-in-out infinite;
   }

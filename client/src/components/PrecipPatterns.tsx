@@ -43,7 +43,7 @@ export function getPrecipTypeFromWeatherCode(
       return 'rain';
     }
   }
-  
+
   // Fallback: use temperature if available
   // Snow typically forms at or below 2°C (35.6°F) due to atmospheric conditions
   if (temperatureCelsius !== undefined && temperatureCelsius !== null && Number.isFinite(temperatureCelsius)) {
@@ -51,7 +51,7 @@ export function getPrecipTypeFromWeatherCode(
       return 'snow';
     }
   }
-  
+
   return 'rain'; // default
 }
 
@@ -231,7 +231,7 @@ export function PrecipPatterns() {
         </pattern>
 
         {/* ===== SNOW PATTERNS (White) ===== */}
-        
+
         {/* Trace snow: Two light flakes with extra spacing */}
         <pattern
           id="snow-trace"
@@ -394,6 +394,15 @@ export function PrecipPatterns() {
           <circle cx="7" cy="6" r="1.6" fill="oklch(0.75 0 0)" opacity="0.55" />
           <circle cx="1" cy="7" r="1.4" fill="oklch(0.75 0 0)" opacity="0.5" />
           <circle cx="5" cy="7" r="1.2" fill="oklch(0.75 0 0)" opacity="0.45" />
+        </pattern>
+        <pattern
+          id="precip-unavailable"
+          width="8"
+          height="8"
+          patternUnits="userSpaceOnUse"
+          patternTransform="rotate(45)"
+        >
+          <line x1="0" y1="0" x2="0" y2="8" stroke="oklch(1 0 0 / 0.1)" strokeWidth="1" />
         </pattern>
       </defs>
     </svg>

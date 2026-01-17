@@ -4,6 +4,7 @@
  */
 
 import type { ModelForecast } from './weatherApi';
+import { AGREEMENT_STDDEV_TO_SPREAD_MULTIPLIER } from './consensusConfig';
 
 export function filterFiniteNumbers(values: number[]): number[] {
   return values.filter((value) => Number.isFinite(value));
@@ -43,13 +44,22 @@ export function computeStats(values: number[]): {
   };
 }
 
-export function calculateAgreement(stdDev: number, expectedRange: number): number {
-  if (!Number.isFinite(stdDev) || !Number.isFinite(expectedRange) || expectedRange <= 0) {
+/**
+ * Convert a standard deviation (computed across model values) into a 0–100
+ * agreement score.
+ *
+ * `expectedSpread` is interpreted as the typical max-to-min spread across models
+ * for the given metric (not a standard deviation). We estimate spread from
+ * stdDev as `spread ≈ 2 × stdDev` (exact when there are 2 models).
+ */
+export function calculateAgreement(stdDev: number, expectedSpread: number): number {
+  if (!Number.isFinite(stdDev) || !Number.isFinite(expectedSpread) || expectedSpread <= 0) {
     return 0;
   }
 
-  const normalizedDev = stdDev / expectedRange;
-  const score = 100 * (1 - normalizedDev * 2);
+  const spreadEstimate = stdDev * AGREEMENT_STDDEV_TO_SPREAD_MULTIPLIER;
+  const normalizedSpread = spreadEstimate / expectedSpread;
+  const score = 100 * (1 - normalizedSpread);
   return clampScore(score);
 }
 

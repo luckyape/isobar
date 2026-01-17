@@ -1,9 +1,10 @@
 import { useMemo, useState } from 'react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-import { useIsMobile } from '@/hooks/useMobile';
+import { useIsMobile } from '@/hooks/useMediaQuery';
 import { cn } from '@/lib/utils';
 import { WEATHER_MODELS, type ModelForecast } from '@/lib/weatherApi';
 import type { HourlyConsensus } from '@/lib/consensus';
+import { AGREEMENT_LEVEL_THRESHOLDS } from '@/lib/consensusConfig';
 import { MatrixRowLabel } from '@/components/MatrixRowLabel';
 import {
   ComparisonTooltipCard,
@@ -19,6 +20,7 @@ import {
 
 type TimeSlot = {
   time: string;
+  epoch: number;
   label: string;
   fullLabel: string;
   isCurrent: boolean;
@@ -46,7 +48,8 @@ type TooltipRow = {
   windFrom: number | null;
   sustained: number | null;
   gust: number | null;
-  agreementR: number | null;
+  directionAgreement: number | null;
+  clusteringR: number | null;
   available: boolean;
 };
 
@@ -58,7 +61,8 @@ type TooltipColumn = {
 const BASE_CELL_BG = 'oklch(0.12 0.02 240)';
 const CONSENSUS_COLOR = 'oklch(0.95 0.01 240)';
 const OBSERVED_COLOR = 'oklch(0.82 0.02 240)';
-const AGREEMENT_THRESHOLD = 0.6;
+const DIRECTION_CLUSTERING_THRESHOLD_R = 0.6;
+const DIRECTION_AGREEMENT_RING_THRESHOLD = AGREEMENT_LEVEL_THRESHOLDS.moderate;
 const CELL_SIZE = 28;
 const CELL_CENTER = CELL_SIZE / 2;
 const POINTER_SIZES: Record<Exclude<WindSizeBin, 'calm'>, number> = {
@@ -85,9 +89,14 @@ function formatSpeed(value: number | null): string {
   return `${Math.round(value as number)} km/h`;
 }
 
-function formatAgreement(value: number | null): string {
+function formatClusteringR(value: number | null): string {
   if (!Number.isFinite(value ?? NaN)) return '--';
   return `${Math.round((value as number) * 100)}%`;
+}
+
+function formatAgreementPercent(value: number | null): string {
+  if (!Number.isFinite(value ?? NaN)) return '--';
+  return `${Math.round(value as number)}%`;
 }
 
 function getFlowToText(windFrom: number | null): string {
@@ -100,7 +109,8 @@ function WindDirectionCell({
   sustained,
   color,
   isConsensus,
-  agreementR,
+  directionAgreement,
+  clusteringR,
   isDisabled,
   rowGlowColor
 }: {
@@ -108,7 +118,8 @@ function WindDirectionCell({
   sustained: number | null;
   color: string;
   isConsensus: boolean;
-  agreementR: number | null;
+  directionAgreement: number | null;
+  clusteringR: number | null;
   isDisabled: boolean;
   rowGlowColor?: string;
 }) {
@@ -123,9 +134,16 @@ function WindDirectionCell({
   const rotation = hasDirection ? flowToDegrees(windFrom as number) : 0;
   const showAgreementRing = Boolean(
     isConsensus
-      && !isCalm
-      && Number.isFinite(agreementR ?? NaN)
-      && (agreementR as number) < AGREEMENT_THRESHOLD
+    && !isCalm
+    && (
+      (Number.isFinite(directionAgreement ?? NaN)
+        && (directionAgreement as number) < DIRECTION_AGREEMENT_RING_THRESHOLD)
+      || (
+        !Number.isFinite(directionAgreement ?? NaN)
+        && Number.isFinite(clusteringR ?? NaN)
+        && (clusteringR as number) < DIRECTION_CLUSTERING_THRESHOLD_R
+      )
+    )
   );
   const overlayTint = rowGlowColor ? withAlpha(rowGlowColor, 0.07) : undefined;
 
@@ -174,7 +192,7 @@ export function WindDirectionMatrix({
   modelAvailability,
   consensusByTime,
   showConsensus,
-  observedWindByTime,
+  observedWindByEpoch,
   observedCutoffTimeKey
 }: {
   timeSlots: TimeSlot[];
@@ -182,7 +200,7 @@ export function WindDirectionMatrix({
   modelAvailability: Map<string, boolean>;
   consensusByTime: Map<string, HourlyConsensus>;
   showConsensus: boolean;
-  observedWindByTime: Map<string, ObservedWindSample>;
+  observedWindByEpoch: Map<number, ObservedWindSample>;
   observedCutoffTimeKey?: string | null;
 }) {
   const isMobile = useIsMobile();
@@ -213,10 +231,10 @@ export function WindDirectionMatrix({
       label: 'Observed',
       type: 'observed' as const,
       color: OBSERVED_COLOR,
-      available: observedWindByTime.size > 0
+      available: observedWindByEpoch.size > 0
     });
     return list;
-  }, [modelAvailability, observedWindByTime, showConsensus]);
+  }, [modelAvailability, observedWindByEpoch, showConsensus]);
 
   const agreementByTime = useMemo(() => {
     const map = new Map<string, number | null>();
@@ -224,7 +242,8 @@ export function WindDirectionMatrix({
       const directions = WEATHER_MODELS.map((model) =>
         modelHourlyById.get(model.id)?.get(slot.time)?.windDirection
       ).filter((value) => Number.isFinite(value)) as number[];
-      map.set(slot.time, resultantLengthR(directions));
+      const clusteringR = resultantLengthR(directions);
+      map.set(slot.time, Number.isFinite(clusteringR) ? clusteringR : null);
     });
     return map;
   }, [modelHourlyById, timeSlots]);
@@ -245,7 +264,8 @@ export function WindDirectionMatrix({
             windFrom,
             sustained,
             gust,
-            agreementR: null,
+            directionAgreement: null,
+            clusteringR: null,
             available: row.available
           };
         }
@@ -257,7 +277,10 @@ export function WindDirectionMatrix({
           const sustained = Number.isFinite(consensus?.windSpeed.mean)
             ? consensus?.windSpeed.mean ?? null
             : null;
-          const agreementR = agreementByTime.get(slot.time) ?? null;
+          const clusteringR = agreementByTime.get(slot.time) ?? null;
+          const directionAgreement = consensus?.windDirection.available === false
+            ? null
+            : consensus?.windDirection.agreement ?? null;
           return {
             id: row.id,
             name: row.label,
@@ -266,11 +289,12 @@ export function WindDirectionMatrix({
             windFrom,
             sustained,
             gust: null,
-            agreementR,
+            directionAgreement,
+            clusteringR,
             available: row.available
           };
         }
-        const observed = observedWindByTime.get(slot.time) ?? null;
+        const observed = observedWindByEpoch.get(slot.epoch) ?? null;
         return {
           id: row.id,
           name: row.label,
@@ -279,13 +303,14 @@ export function WindDirectionMatrix({
           windFrom: observed?.direction ?? null,
           sustained: Number.isFinite(observed?.speed ?? NaN) ? observed?.speed ?? null : null,
           gust: Number.isFinite(observed?.gust ?? NaN) ? observed?.gust ?? null : null,
-          agreementR: null,
+          directionAgreement: null,
+          clusteringR: null,
           available: row.available
         };
       });
       return { slot, rows: columnRows };
     });
-  }, [agreementByTime, consensusByTime, modelHourlyById, observedWindByTime, rows, timeSlots]);
+  }, [agreementByTime, consensusByTime, modelHourlyById, observedWindByEpoch, rows, timeSlots]);
 
   if (timeSlots.length === 0) {
     return null;
@@ -377,7 +402,8 @@ export function WindDirectionMatrix({
                               sustained={row.sustained}
                               color={row.color ?? CONSENSUS_COLOR}
                               isConsensus={row.type === 'consensus'}
-                              agreementR={row.agreementR}
+                              directionAgreement={row.directionAgreement}
+                              clusteringR={row.clusteringR}
                               isDisabled={!row.available}
                               rowGlowColor={rowGlowColor}
                             />
@@ -385,72 +411,75 @@ export function WindDirectionMatrix({
                         );
                       })}
                     </div>
-                </TooltipTrigger>
+                  </TooltipTrigger>
                   <TooltipContent
                     side="top"
                     className="p-0 bg-transparent shadow-none border-none text-foreground [&>svg]:hidden"
                   >
                     <ComparisonTooltipCard title={column.slot.fullLabel}>
                       {consensusRows.map((row) => {
-                          const speedText = formatSpeed(row.sustained);
-                          const gustText = Number.isFinite(row.gust ?? NaN)
-                            ? ` / ${formatSpeed(row.gust)} gust`
-                            : '';
-                          const agreementText = Number.isFinite(row.agreementR ?? NaN)
-                            ? ` • R ${formatAgreement(row.agreementR)}`
-                            : '';
-                          return (
-                            <ComparisonTooltipSection key={`${row.id}-${column.slot.time}-consensus`}>
-                              <ComparisonTooltipRow
-                                label="Consensus"
-                                value={`${formatDegrees(row.windFrom)} → ${getFlowToText(row.windFrom)} • ${speedText}${gustText}${agreementText}`}
-                              />
-                            </ComparisonTooltipSection>
-                          );
-                        })}
+                        const speedText = formatSpeed(row.sustained);
+                        const gustText = Number.isFinite(row.gust ?? NaN)
+                          ? ` / ${formatSpeed(row.gust)} gust`
+                          : '';
+                        const agreementText = Number.isFinite(row.directionAgreement ?? NaN)
+                          ? ` • Dir ${formatAgreementPercent(row.directionAgreement)}`
+                          : '';
+                        const clusteringText = Number.isFinite(row.clusteringR ?? NaN)
+                          ? ` • R ${formatClusteringR(row.clusteringR)}`
+                          : '';
+                        return (
+                          <ComparisonTooltipSection key={`${row.id}-${column.slot.time}-consensus`}>
+                            <ComparisonTooltipRow
+                              label="Consensus"
+                              value={`${formatDegrees(row.windFrom)} → ${getFlowToText(row.windFrom)} • ${speedText}${gustText}${agreementText}${clusteringText}`}
+                            />
+                          </ComparisonTooltipSection>
+                        );
+                      })}
                       {observedRows.map((row) => {
-                          const speedText = formatSpeed(row.sustained);
-                          const gustText = Number.isFinite(row.gust ?? NaN)
-                            ? ` / ${formatSpeed(row.gust)} gust`
-                            : '';
-                          return (
-                            <ComparisonTooltipSection
-                              key={`${row.id}-${column.slot.time}-observed`}
-                              divider={consensusRows.length > 0}
-                            >
-                              <ComparisonTooltipRow
-                                label="Observed"
-                                value={`${formatDegrees(row.windFrom)} → ${getFlowToText(row.windFrom)} • ${speedText}${gustText}`}
-                                icon={
-                                  <span
-                                    className="inline-block h-2 w-2 rounded-full"
-                                    style={{ backgroundColor: OBSERVED_COLOR }}
-                                  />
-                                }
-                              />
-                            </ComparisonTooltipSection>
-                          );
-                        })}
+                        const speedText = formatSpeed(row.sustained);
+                        const gustText = Number.isFinite(row.gust ?? NaN)
+                          ? ` / ${formatSpeed(row.gust)} gust`
+                          : '';
+                        return (
+                          <ComparisonTooltipSection
+                            key={`${row.id}-${column.slot.time}-observed`}
+                            divider={consensusRows.length > 0}
+                          >
+                            <ComparisonTooltipRow
+                              label="Observed"
+                              value={`${formatDegrees(row.windFrom)} → ${getFlowToText(row.windFrom)} • ${speedText}${gustText}`}
+                              icon={
+                                <span
+                                  className="inline-block h-2 w-2 rounded-full"
+                                  style={{ backgroundColor: OBSERVED_COLOR }}
+                                />
+                              }
+                            />
+                          </ComparisonTooltipSection>
+                        );
+                      })}
                       <ComparisonTooltipSection divider={showModelDivider}>
                         {modelRows.map((row) => {
-                            const speedText = formatSpeed(row.sustained);
-                            const gustText = Number.isFinite(row.gust ?? NaN)
-                              ? ` / ${formatSpeed(row.gust)} gust`
-                              : '';
-                            return (
-                              <ComparisonTooltipRow
-                                key={`${row.id}-${column.slot.time}-model`}
-                                label={`${row.name}:`}
-                                value={`${formatDegrees(row.windFrom)} → ${getFlowToText(row.windFrom)} • ${speedText}${gustText}`}
-                                icon={
-                                  <span
-                                    className="h-2 w-2 triangle-icon"
-                                    style={{ backgroundColor: row.color }}
-                                  />
-                                }
-                              />
-                            );
-                          })}
+                          const speedText = formatSpeed(row.sustained);
+                          const gustText = Number.isFinite(row.gust ?? NaN)
+                            ? ` / ${formatSpeed(row.gust)} gust`
+                            : '';
+                          return (
+                            <ComparisonTooltipRow
+                              key={`${row.id}-${column.slot.time}-model`}
+                              label={`${row.name}:`}
+                              value={`${formatDegrees(row.windFrom)} → ${getFlowToText(row.windFrom)} • ${speedText}${gustText}`}
+                              icon={
+                                <span
+                                  className="h-2 w-2 triangle-icon"
+                                  style={{ backgroundColor: row.color }}
+                                />
+                              }
+                            />
+                          );
+                        })}
                       </ComparisonTooltipSection>
                     </ComparisonTooltipCard>
                   </TooltipContent>

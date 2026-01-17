@@ -45,7 +45,7 @@ describe('calculateFreshness', () => {
 
     expect(result.hasMetadata).toBe(true);
     expect(result.spreadHours).toBeCloseTo(10);
-    expect(result.freshnessScore).toBe(0);
+    expect(result.freshnessScore).toBe(60);
   });
 
   it('returns no spread when metadata is missing', () => {
@@ -62,6 +62,6 @@ describe('calculateFreshness', () => {
       makeForecast(oldest)
     ], { nowSeconds: freshest });
 
-    expect(result.freshnessScore).toBe(70);
+    expect(result.freshnessScore).toBe(88);
   });
 });

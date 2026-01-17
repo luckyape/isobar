@@ -4,11 +4,13 @@ import { cn } from '@/lib/utils';
 export function ComparisonTooltipCard({
   title,
   children,
-  className
+  className,
+  isUnverified
 }: {
   title: string;
   children?: React.ReactNode;
   className?: string;
+  isUnverified?: boolean;
 }) {
   const hasChildren = Children.count(children) > 0;
   return (
@@ -20,6 +22,11 @@ export function ComparisonTooltipCard({
     >
       <p className={cn('font-semibold', hasChildren && 'mb-2')}>{title}</p>
       {hasChildren ? children : null}
+      {isUnverified && (
+        <div className="mt-2 pt-2 border-t border-white/10 text-[10px] text-amber-400/80 font-mono text-right">
+          UNVERIFIED
+        </div>
+      )}
     </div>
   );
 }
@@ -54,7 +61,7 @@ export function ComparisonTooltipRow({
   valueClassName
 }: {
   label: string;
-  value: string;
+  value: React.ReactNode;
   icon?: React.ReactNode;
   labelClassName?: string;
   valueClassName?: string;
@@ -71,3 +78,4 @@ export function ComparisonTooltipRow({
     </div>
   );
 }
+

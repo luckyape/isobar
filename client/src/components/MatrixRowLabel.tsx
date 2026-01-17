@@ -1,3 +1,4 @@
+import React from 'react';
 import { cn } from '@/lib/utils';
 
 type MatrixRowType = 'model' | 'consensus' | 'observed';
@@ -7,13 +8,15 @@ export function MatrixRowLabel({
   type,
   color,
   available,
-  labelTint
+  labelTint,
+  unavailableReason
 }: {
   label: string;
   type: MatrixRowType;
   color?: string;
   available: boolean;
   labelTint?: string;
+  unavailableReason?: string;
 }) {
   return (
     <div
@@ -30,9 +33,12 @@ export function MatrixRowLabel({
         />
       )}
       <span>{label}</span>
-      {!available && type === 'observed' && (
-        <span className="text-[10px] text-foreground/40">
-          Unavailable
+      {!available && type === 'observed' && unavailableReason && (
+        <span
+          className="text-[10px] text-foreground/40"
+          title={unavailableReason}
+        >
+          – {unavailableReason}
         </span>
       )}
     </div>

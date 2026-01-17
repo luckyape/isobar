@@ -29,7 +29,7 @@ import {
   ComparisonTooltipRow,
   ComparisonTooltipSection
 } from '@/components/ComparisonTooltip';
-import { useIsMobile } from '@/hooks/useMobile';
+import { useIsMobile } from '@/hooks/useMediaQuery';
 
 interface WindChartProps {
   forecasts: ModelForecast[];
@@ -50,7 +50,7 @@ export function WindChart({
   observations = [],
   timezone,
   visibleLines = {},
-  onToggleLine = () => {}
+  onToggleLine = () => { }
 }: WindChartProps) {
   const hasConsensus = showConsensus && consensus.length > 0;
   const isMobile = useIsMobile();
@@ -270,16 +270,35 @@ export function WindChart({
             const sustained = data[model.id];
             const gust = data[`${model.id}__gust`];
             if (sustained === undefined && gust === undefined) return null;
-            const sustainedText = Number.isFinite(sustained ?? NaN) ? formatWind(sustained) : null;
+
+            let sustainedText = Number.isFinite(sustained ?? NaN) ? formatWind(sustained) : null;
+            if (sustainedText && hasObserved && Number.isFinite(data.observed)) {
+              const delta = (sustained as number) - (data.observed as number);
+              if (Number.isFinite(delta)) {
+                const sign = delta > 0 ? '+' : '';
+                const color = delta > 0 ? 'text-red-400' : delta < 0 ? 'text-blue-400' : 'text-gray-400';
+                const deltaStr = `(${sign}${Math.round(delta)})`;
+                sustainedText = <span className="flex items-center gap-1">{formatWind(sustained)} <span className={`text-[10px] ${color}`}>{deltaStr}</span></span> as any;
+              }
+            }
+
             const gustText = Number.isFinite(gust ?? NaN) ? `${formatWind(gust)} gust` : null;
-            const valueText = sustainedText && gustText
-              ? `${sustainedText} / ${gustText}`
-              : sustainedText || gustText || '--';
+
+            // Composition is tricky if sustainedText is a Component.
+            // If sustainedText became a component, we can't just concat strings.
+            // Let's keep structure clean.
+            const valueContent = (
+              <div className="flex items-center justify-end gap-2">
+                {sustainedText || '--'}
+                {gustText && <span className="opacity-70 text-[10px]">{gustText}</span>}
+              </div>
+            );
+
             return (
               <ComparisonTooltipRow
                 key={model.id}
                 label={`${model.name}:`}
-                value={valueText}
+                value={valueContent}
                 icon={
                   <span
                     className="w-2 h-2 triangle-icon"

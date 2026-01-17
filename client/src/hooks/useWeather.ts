@@ -1,23 +1,34 @@
 /**
  * useWeather Hook - Arctic Data Observatory
  * Manages weather data fetching, caching, and consensus calculation
+ *
+ * PRIMARY vs ACTIVE LOCATION:
+ * - activeLocation: Currently viewed location (what charts display)
+ * - primaryLocation: The "weatherman assigned" location for deeper features
+ *
+ * OBSERVATIONS GATING:
+ * Observations are ONLY fetched for the primary location. When browsing
+ * a non-primary location, forecasts are shown but observations are not.
  */
 
-import { useState, useEffect, useCallback, useRef } from 'react';
-import {
-  fetchForecastsWithMetadata,
-  getCachedForecasts,
-  fetchObservedHourly,
-  type ObservedConditions,
-  type ModelForecast,
-  type Location,
-  type DataCompleteness,
-  CANADIAN_CITIES
-} from '@/lib/weatherApi';
+import { useState, useEffect, useCallback, useRef, useSyncExternalStore } from 'react';
+import { fetchForecastsWithMetadata, getCachedForecasts, fetchObservedHourly, triggerIngest, type ObservedConditions, type ModelForecast, type Location, type DataCompleteness } from '@/lib/weatherApi';
 import { calculateConsensus, type ConsensusResult } from '@/lib/consensus';
+import { getSyncEngine, SyncEngine, type SyncProgress } from '@/lib/vault/sync';
+import {
+  getActiveLocation,
+  getPrimaryLocation,
+  setActiveLocation as storeSetActive,
+  setPrimaryLocation as storeSetPrimary,
+  isPrimaryLocation,
+  subscribeToLocationChanges,
+  getLocationSnapshot
+} from '@/lib/locationStore';
 
 interface WeatherState {
   location: Location | null;
+  primaryLocation: Location | null;
+  isPrimary: boolean;
   forecasts: ModelForecast[];
   consensus: ConsensusResult | null;
   observations: ObservedConditions | null;
@@ -30,37 +41,24 @@ interface WeatherState {
     type: 'no-new-runs';
     latestRunAvailabilityTime?: number;
   } | null;
-}
-
-const STORAGE_KEY = 'weather-consensus-location';
-
-// Get saved location from localStorage
-function getSavedLocation(): Location | null {
-  try {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved) {
-      return JSON.parse(saved);
-    }
-  } catch (e) {
-    console.error('Error reading saved location:', e);
-  }
-  return null;
-}
-
-// Save location to localStorage
-function saveLocation(location: Location): void {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(location));
-  } catch (e) {
-    console.error('Error saving location:', e);
-  }
+  syncProgress: SyncProgress | null;
 }
 
 export function useWeather() {
   const requestIdRef = useRef(0);
   const pendingRetryRef = useRef<Map<string, number>>(new Map());
+
+  // Subscribe to location store changes
+  const locationSnapshot = useSyncExternalStore(
+    subscribeToLocationChanges,
+    getLocationSnapshot,
+    getLocationSnapshot
+  );
+
   const [state, setState] = useState<WeatherState>({
-    location: null,
+    location: locationSnapshot.activeLocation,
+    primaryLocation: locationSnapshot.primaryLocation,
+    isPrimary: locationSnapshot.isViewingPrimary,
     forecasts: [],
     consensus: null,
     observations: null,
@@ -69,55 +67,67 @@ export function useWeather() {
     isOffline: typeof navigator !== 'undefined' ? !navigator.onLine : false,
     error: null,
     lastUpdated: null,
-    refreshNotice: null
+    refreshNotice: null,
+    syncProgress: null
   });
 
   // Fetch weather data for a location
   const fetchWeather = useCallback(async (
     location: Location,
-    options: { force?: boolean; userInitiated?: boolean; refresh?: boolean } = {}
+    options: { force?: boolean; bypassAllCaches?: boolean; userInitiated?: boolean; refresh?: boolean } = {}
   ) => {
     const requestId = ++requestIdRef.current;
     const isOffline = typeof navigator !== 'undefined' ? !navigator.onLine : false;
+    const cachedForecasts = getCachedForecasts(
+      location.latitude,
+      location.longitude,
+      location.timezone
+    );
+    const hasCachedForecasts = cachedForecasts.length > 0;
+    const cachedConsensus = hasCachedForecasts ? calculateConsensus(cachedForecasts) : null;
+    const cachedRunTime = cachedConsensus?.freshness.freshestRunAvailabilityTime ?? null;
+
+    // Single state update on fetch start to avoid transient empty/loading flashes.
+    // If we have cached data for the target location, apply it immediately as the "loading snapshot".
     setState(prev => ({
       ...prev,
       isLoading: !isOffline,
       isOffline,
       error: null,
       observations: null,
-      refreshNotice: null
+      refreshNotice: null,
+      ...(hasCachedForecasts
+        ? {
+          location,
+          forecasts: cachedForecasts,
+          consensus: cachedConsensus,
+          lastUpdated: Number.isFinite(cachedRunTime ?? NaN) ? new Date((cachedRunTime as number) * 1000) : null,
+          primaryLocation: getPrimaryLocation(),
+          isPrimary: isPrimaryLocation(location)
+        }
+        : null)
     }));
-    const cachedForecasts = getCachedForecasts(
-      location.latitude,
-      location.longitude,
-      location.timezone
-    );
-    if (cachedForecasts.length > 0) {
-      const cachedConsensus = calculateConsensus(cachedForecasts);
-      const runTime = cachedConsensus.freshness.freshestRunAvailabilityTime;
-      setState(prev => ({
-        ...prev,
-        location,
-        forecasts: cachedForecasts,
-        consensus: cachedConsensus,
-        lastUpdated: Number.isFinite(runTime ?? NaN) ? new Date((runTime as number) * 1000) : null
-      }));
-    }
 
     try {
-      const observationsPromise = isOffline
-        ? null
-        : fetchObservedHourly(
+      // GATING: Only fetch observations for the PRIMARY location.
+      // When browsing non-primary locations, we skip observation fetches
+      // to avoid unnecessary API calls and confusion about which location's
+      // observations are being displayed.
+      const shouldFetchObservations = !isOffline && isPrimaryLocation(location);
+      const observationsPromise = shouldFetchObservations
+        ? fetchObservedHourly(
           location.latitude,
           location.longitude,
           location.timezone
-        );
+        )
+        : null;
       const { forecasts, pending, refreshSummary, completeness } = await fetchForecastsWithMetadata(
         location.latitude,
         location.longitude,
         location.timezone,
         {
           force: options.force,
+          bypassAllCaches: options.bypassAllCaches,
           userInitiated: options.userInitiated,
           offline: isOffline
         }
@@ -129,12 +139,12 @@ export function useWeather() {
       const runTime = consensus.freshness.freshestRunAvailabilityTime;
       const refreshNotice = refreshSummary.noNewRuns && options.refresh
         ? {
-            type: 'no-new-runs' as const,
-            latestRunAvailabilityTime: refreshSummary.latestRunAvailabilityTime
-          }
+          type: 'no-new-runs' as const,
+          latestRunAvailabilityTime: refreshSummary.latestRunAvailabilityTime
+        }
         : null;
 
-      setState({
+      setState(prev => ({
         location,
         forecasts,
         consensus,
@@ -144,10 +154,14 @@ export function useWeather() {
         isOffline,
         error: null,
         lastUpdated: Number.isFinite(runTime ?? NaN) ? new Date((runTime as number) * 1000) : null,
-        refreshNotice
-      });
+        refreshNotice,
+        syncProgress: prev.syncProgress,
+        primaryLocation: getPrimaryLocation(),
+        isPrimary: isPrimaryLocation(location)
+      }));
 
-      saveLocation(location);
+      // Update the store's active location
+      storeSetActive(location);
 
       const pendingIds = new Set(pending.map((item) => item.modelId));
       pendingRetryRef.current.forEach((timeoutId, modelId) => {
@@ -192,24 +206,124 @@ export function useWeather() {
     }
   }, []);
 
-  // Set location and fetch weather
+  // Set active location (for browsing) and fetch weather
   const setLocation = useCallback((location: Location) => {
+    storeSetActive(location);
     fetchWeather(location, { userInitiated: true, refresh: false });
   }, [fetchWeather]);
 
+  const backfillControllerRef = useRef<AbortController | null>(null);
+
+  // Set primary location (the "weatherman assigned" location)
+  const setPrimaryLocation = useCallback(async (location: Location) => {
+    storeSetPrimary(location);
+    // Setting primary also updates active (handled by store)
+    // Fetch weather for the new primary
+    fetchWeather(location, { userInitiated: true, refresh: false });
+
+    // 1. Abort any existing backfill job
+    if (backfillControllerRef.current) {
+      console.log('[useWeather] Aborting previous backfill');
+      backfillControllerRef.current.abort();
+    }
+    backfillControllerRef.current = new AbortController();
+    const signal = backfillControllerRef.current.signal;
+
+    try {
+      // 2. Trigger ingestion on the CDN (Strict Contract A: wait for manifest)
+      // This ensures data exists for the new location before we try to sync it.
+      console.log(`[useWeather] Triggering ingest for ${location.name}...`);
+      await triggerIngest(location);
+      if (signal.aborted) return;
+
+      // 3. Trigger historical backfill
+      // We create a standalone engine to avoid interference with the main sync effect
+      // but managed by our abort controller to prevent stampedes.
+      const backfillEngine = new SyncEngine({
+        location: {
+          latitude: location.latitude,
+          longitude: location.longitude,
+          timezone: location.timezone
+        }
+      });
+
+      console.log(`[useWeather] Starting 365-day backfill for ${location.name}`);
+      await backfillEngine.sync(undefined, { syncDays: 365, signal });
+      if (signal.aborted) return;
+
+      console.log(`[useWeather] Backfill complete for ${location.name}`);
+
+      // 4. Quick refresh to catch edges
+      // A small sync to ensure we have the absolute latest "today" data if ingest
+      // finished while we were backfilling history.
+      await backfillEngine.sync(undefined, { syncDays: 2, signal });
+
+    } catch (err) {
+      if (signal.aborted) {
+        console.log(`[useWeather] Backfill aborted for ${location.name}`);
+      } else {
+        console.warn(`[useWeather] Backfill sequence failed for ${location.name}:`, err);
+      }
+    } finally {
+      if (backfillControllerRef.current?.signal === signal) {
+        backfillControllerRef.current = null;
+      }
+    }
+  }, [fetchWeather]);
+
   // Refresh current location data
-  const refresh = useCallback((options?: { force?: boolean; userInitiated?: boolean }) => {
+  const refresh = useCallback((options?: { force?: boolean; bypassAllCaches?: boolean; userInitiated?: boolean }) => {
     if (state.location && !state.isOffline) {
       fetchWeather(state.location, { userInitiated: true, refresh: true, ...options });
     }
   }, [state.location, state.isOffline, fetchWeather]);
 
-  // Initialize with saved location or default
+  // Initialize with location from store (already initialized with proper defaults)
   useEffect(() => {
-    const savedLocation = getSavedLocation();
-    const initialLocation = savedLocation || CANADIAN_CITIES[0]; // Default to Toronto
+    const initialLocation = getActiveLocation();
     fetchWeather(initialLocation);
   }, [fetchWeather]);
+
+  // Location-scoped background sync from CDN
+  useEffect(() => {
+    if (!state.location) return;
+    if (state.isOffline) return;
+
+    const syncEngine = getSyncEngine({
+      location: {
+        latitude: state.location.latitude,
+        longitude: state.location.longitude,
+        timezone: state.location.timezone
+      }
+    });
+
+    const controller = new AbortController();
+    let active = true;
+
+    syncEngine
+      .sync((progress) => {
+        if (!active) return;
+        setState(prev => ({ ...prev, syncProgress: progress }));
+      }, { signal: controller.signal })
+      .then((syncState) => {
+        if (!active) return;
+        console.log(`[sync] Finished: ${syncState.blobsDownloaded} blobs, ${syncState.bytesDownloaded} bytes`);
+        if (syncState.blobsDownloaded > 0) {
+          refresh({ force: false, bypassAllCaches: false, userInitiated: false });
+        }
+      })
+      .catch((err) => {
+        if (!active) return;
+        // Ignore abort errors
+        if (controller.signal.aborted) return;
+        console.warn('[sync] Failed:', err);
+      });
+
+    return () => {
+      active = false;
+      controller.abort();
+    };
+  }, [state.location?.latitude, state.location?.longitude, state.location?.timezone, state.isOffline, refresh]);
 
   useEffect(() => {
     const handleOnline = () => {
@@ -238,6 +352,7 @@ export function useWeather() {
   return {
     ...state,
     setLocation,
+    setPrimaryLocation,
     refresh
   };
 }

@@ -1,5 +1,5 @@
 import { memo } from 'react';
-import { CloudSnow, RefreshCw, ChevronDown } from 'lucide-react';
+import { CloudSnow, RefreshCw, Crown } from 'lucide-react';
 import { LocationSearch } from '@/components/LocationSearch';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
@@ -8,15 +8,18 @@ import type { Location } from '@/lib/weatherApi';
 
 interface HeaderProps {
   location: Location | null;
+  primaryLocation?: Location | null;
+  isPrimary?: boolean;
   isOffline: boolean;
   isLoading: boolean;
   onLocationSelect: (location: Location) => void;
+  onSetPrimary?: (location: Location) => void;
   onRefresh: (options: { force: boolean; userInitiated: boolean }) => void;
 }
 
 const TOOLTIP_CONTENT_CLASSNAME = 'p-0 bg-transparent shadow-none border-none text-foreground [&>svg]:hidden';
 
-const Header = memo(({ location, isOffline, isLoading, onLocationSelect, onRefresh }: HeaderProps) => {
+const Header = memo(({ location, primaryLocation, isPrimary = true, isOffline, isLoading, onLocationSelect, onSetPrimary, onRefresh }: HeaderProps) => {
   const handleRefreshClick = (event: React.MouseEvent<HTMLButtonElement>) => {
     const force = event.altKey || event.metaKey || event.ctrlKey || event.shiftKey;
     onRefresh({ force, userInitiated: true });
@@ -33,9 +36,25 @@ const Header = memo(({ location, isOffline, isLoading, onLocationSelect, onRefre
           </div>
         </div>
         <div className="flex items-center gap-3">
-          <LocationSearch 
-            currentLocation={location} 
+          {/* Primary location indicator when browsing non-primary */}
+          {!isPrimary && primaryLocation && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <div className="hidden sm:flex items-center gap-1.5 px-2 py-1 rounded-full bg-primary/10 border border-primary/20">
+                  <Crown className="w-3 h-3 text-primary" />
+                  <span className="text-[10px] text-primary font-medium">{primaryLocation.name}</span>
+                </div>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" className={TOOLTIP_CONTENT_CLASSNAME}>
+                <ComparisonTooltipCard title={`Primary: ${primaryLocation.name}`} />
+              </TooltipContent>
+            </Tooltip>
+          )}
+          <LocationSearch
+            currentLocation={location}
+            primaryLocation={primaryLocation}
             onLocationSelect={onLocationSelect}
+            onSetPrimary={onSetPrimary}
             disabled={isOffline}
           />
           {isOffline && (

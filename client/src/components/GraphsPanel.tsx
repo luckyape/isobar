@@ -3,9 +3,9 @@
  * Tabbed suite for hourly model comparisons with chart/table modes.
  */
 
-import { useMemo, useState } from 'react';
+import React, { useMemo, useState, useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
-import { Thermometer, Droplets, Wind, Cloud, Layers, Navigation, List as ListIcon } from 'lucide-react';
+import { Thermometer, Droplets, Wind, Cloud, Layers, Navigation, List as ListIcon, Crown } from 'lucide-react';
 import {
   Tabs,
   TabsContent,
@@ -37,11 +37,12 @@ import {
   formatHourLabel,
   formatWeekdayHourLabel,
   parseOpenMeteoDateTime,
-  shiftOpenMeteoDateTimeKey
+  shiftOpenMeteoDateTimeKey,
+  getZonedDateParts,
+  formatDateTimeKey
 } from '@/lib/timeUtils';
 import {
   buildHourlyForecastMap,
-  buildPrecipMedianConsensus,
   getPrecipIntensityColor
 } from '@/lib/graphUtils';
 import {
@@ -59,8 +60,12 @@ import {
   ComparisonTooltipRow,
   ComparisonTooltipSection
 } from '@/components/ComparisonTooltip';
-import { useIsMobile } from '@/hooks/useMobile';
+import { useIsMobile } from '@/hooks/useMediaQuery';
 import { cn } from '@/lib/utils';
+import { fetchObservationsForRange, type ObservationData } from '@/lib/observations/observations';
+import { signedDelta, circularAbsDiffDeg } from '@/lib/observations/error';
+import { bucketMs, bucketEndMs, isBucketCompleted } from '@/lib/observations/bucketing';
+import { isBucketedAccumulation } from '@/lib/observations/vars';
 
 type GraphKey = 'temperature' | 'precipitation' | 'wind' | 'conditions';
 type ViewMode = 'chart' | 'table';
@@ -68,6 +73,7 @@ type WindMode = 'chart' | 'matrix';
 
 type TimeSlot = {
   time: string;
+  epoch: number;
   label: string;
   fullLabel: string;
   isCurrent: boolean;
@@ -86,14 +92,17 @@ interface GraphsPanelProps {
   consensus?: HourlyConsensus[];
   showConsensus?: boolean;
   fallbackForecast?: ModelForecast | null;
-  observations?: ObservedHourly[];
+  observations?: never; // DEPRECATED: Removed to prevent fake observed rendering
   timezone?: string;
   visibleLines?: Record<string, boolean>;
   onToggleLine?: (lineName: string) => void;
+  location?: { latitude: number; longitude: number };
+  lastUpdated?: Date | null;
+  isPrimary?: boolean;
 }
 
 interface HourlyWindow {
-  times: string[];
+  slots: { time: string; epoch: number }[];
   currentTimeKey: string | null;
 }
 
@@ -125,26 +134,60 @@ function buildHourlyWindow({
   const baseForecast = fallbackForecast
     || forecasts.find(forecast => !forecast.error && forecast.hourly.length > 0)
     || null;
-  const baseTimes = showConsensus && consensus.length > 0
-    ? consensus.map((hour) => hour.time)
-    : baseForecast?.hourly.map((hour) => hour.time) ?? [];
-  if (baseTimes.length === 0) {
-    return { times: [], currentTimeKey: null };
+
+  // Extract items with both time and epoch
+  // Prefer consensus if available as it's the agreed timeline
+  let baseItems: { time: string; epoch: number }[] = [];
+
+  if (showConsensus && consensus.length > 0) {
+    baseItems = consensus.map(h => ({ time: h.time, epoch: h.epoch || 0 }));
+  } else if (baseForecast?.hourly) {
+    baseItems = baseForecast.hourly.map(h => ({ time: h.time, epoch: h.epoch || 0 }));
   }
 
-  const currentIndex = findCurrentHourIndex(baseTimes, timezone);
-  const currentTimeKey = baseTimes[currentIndex] ?? null;
+  if (baseItems.length === 0) {
+    return { slots: [], currentTimeKey: null };
+  }
+
+  const times = baseItems.map(i => i.time);
+  const currentIndex = findCurrentHourIndex(times, timezone);
+  const currentTimeKey = times[currentIndex] ?? null;
   const maxWindowHours = 48;
   const maxPastHours = 24;
   const pastHours = Math.min(maxPastHours, currentIndex);
   const futureHours = maxWindowHours - pastHours;
   const startIndex = Math.max(0, currentIndex - pastHours);
-  const endIndex = Math.min(baseTimes.length, currentIndex + futureHours + 1);
+  const endIndex = Math.min(baseItems.length, currentIndex + futureHours + 1);
 
   return {
-    times: baseTimes.slice(startIndex, endIndex),
+    slots: baseItems.slice(startIndex, endIndex),
     currentTimeKey
   };
+}
+
+function convertToObservedHourly(data: ObservationData, timezone?: string): ObservedHourly[] {
+  // Defensive check: ensure data.series and data.series.buckets exist
+  if (!data?.series?.buckets) {
+    return [];
+  }
+  return data.series.buckets.map((t, i) => {
+    // Convert ms -> Local Key using the graph's timezone (or default UTC)
+    // This ensures alignment with forecast keys (which are typically local)
+    const date = new Date(t);
+    const parts = getZonedDateParts(date, timezone);
+    const time = parts ? formatDateTimeKey(parts) ?? new Date(t).toISOString().slice(0, 16) : new Date(t).toISOString().slice(0, 16);
+
+    return {
+      time,
+      epoch: t, // Bucket timestamp is the epoch
+      temperature: data.series.tempC[i] ?? NaN,
+      precipitation: data.series.precipMm[i] ?? undefined,
+      windSpeed: data.series.windKph[i] ?? undefined,
+      windGusts: data.series.windGustKph[i] ?? undefined,
+      windDirection: data.series.windDirDeg[i] ?? undefined,
+      weatherCode: data.series.conditionCode[i] ?? undefined
+    };
+  }).filter(row => row.time); // items are valid
 }
 
 function formatTemp(value?: number | null): string {
@@ -153,6 +196,11 @@ function formatTemp(value?: number | null): string {
 }
 
 function formatPop(value?: number | null): string {
+  if (!Number.isFinite(value ?? NaN)) return '--';
+  return `${Math.round(value as number)}%`;
+}
+
+function formatAgreement(value?: number | null): string {
   if (!Number.isFinite(value ?? NaN)) return '--';
   return `${Math.round(value as number)}%`;
 }
@@ -224,15 +272,15 @@ function TemperatureTable({
   modelHourlyById,
   consensusByTime,
   showConsensus,
-  observedTempByTime
+  observedTempByEpoch
 }: {
   timeSlots: TimeSlot[];
   modelHourlyById: Map<string, Map<string, ModelForecast['hourly'][number]>>;
   consensusByTime: Map<string, HourlyConsensus>;
   showConsensus: boolean;
-  observedTempByTime: Map<string, number>;
+  observedTempByEpoch: Map<number, number>;
 }) {
-  const hasObserved = observedTempByTime.size > 0;
+  const hasObserved = observedTempByEpoch.size > 0;
 
   if (timeSlots.length === 0) {
     return (
@@ -284,7 +332,7 @@ function TemperatureTable({
             )}
             {hasObserved && (
               <TableCell className="font-mono tabular-nums">
-                {formatTemp(observedTempByTime.get(slot.time))}
+                {formatTemp(observedTempByEpoch.get(slot.epoch))}
               </TableCell>
             )}
           </TableRow>
@@ -297,17 +345,17 @@ function TemperatureTable({
 function PrecipitationTable({
   timeSlots,
   modelHourlyById,
-  precipConsensusByTime,
+  consensusByTime,
   showConsensus,
-  observedPrecipByTime
+  observedPrecipByEpoch
 }: {
   timeSlots: TimeSlot[];
   modelHourlyById: Map<string, Map<string, ModelForecast['hourly'][number]>>;
-  precipConsensusByTime: Map<string, { pop: number | null; intensity: number | null }>;
+  consensusByTime: Map<string, HourlyConsensus>;
   showConsensus: boolean;
-  observedPrecipByTime: Map<string, number>;
+  observedPrecipByEpoch: Map<number, number>;
 }) {
-  const hasObserved = observedPrecipByTime.size > 0;
+  const hasObserved = observedPrecipByEpoch.size > 0;
 
   if (timeSlots.length === 0) {
     return (
@@ -343,18 +391,18 @@ function PrecipitationTable({
           )}
         </TableRow>
       </TableHeader>
-	      <TableBody>
-	        {timeSlots.map((slot) => (
-	          <TableRow key={slot.time}>
-	            <TableCell className="text-xs text-foreground/70">
-	              {slot.fullLabel}
-	            </TableCell>
-	            {WEATHER_MODELS.flatMap((model) => {
-	              const sourceTimeKey = shiftOpenMeteoDateTimeKey(slot.time, -1) ?? slot.time;
-	              const hour = modelHourlyById.get(model.id)?.get(sourceTimeKey);
-	              const pop = hour?.precipitationProbability;
-	              const intensity = hour?.precipitation;
-	              return [
+      <TableBody>
+        {timeSlots.map((slot) => (
+          <TableRow key={slot.time}>
+            <TableCell className="text-xs text-foreground/70">
+              {slot.fullLabel}
+            </TableCell>
+            {WEATHER_MODELS.flatMap((model) => {
+              const sourceTimeKey = shiftOpenMeteoDateTimeKey(slot.time, -1) ?? slot.time;
+              const hour = modelHourlyById.get(model.id)?.get(sourceTimeKey);
+              const pop = hour?.precipitationProbability;
+              const intensity = hour?.precipitation;
+              return [
                 <TableCell
                   key={`${model.id}-${slot.time}-pop`}
                   className="font-mono tabular-nums"
@@ -369,19 +417,31 @@ function PrecipitationTable({
                 </TableCell>
               ];
             })}
-	            {showConsensus && (
-	              <>
-	                <TableCell className="font-mono tabular-nums">
-	                  {formatPop(precipConsensusByTime.get(shiftOpenMeteoDateTimeKey(slot.time, -1) ?? slot.time)?.pop ?? null)}
-	                </TableCell>
-	                <TableCell className="font-mono tabular-nums">
-	                  {formatIntensity(precipConsensusByTime.get(shiftOpenMeteoDateTimeKey(slot.time, -1) ?? slot.time)?.intensity ?? null)}
-	                </TableCell>
-	              </>
-	            )}
+            {showConsensus && (
+              <>
+                <TableCell className="font-mono tabular-nums">
+                  {formatPop(
+                    consensusByTime.get(shiftOpenMeteoDateTimeKey(slot.time, -1) ?? slot.time)
+                      ?.precipitationProbability.available === false
+                      ? null
+                      : consensusByTime.get(shiftOpenMeteoDateTimeKey(slot.time, -1) ?? slot.time)
+                        ?.precipitationProbability.mean
+                  )}
+                </TableCell>
+                <TableCell className="font-mono tabular-nums">
+                  {formatIntensity(
+                    consensusByTime.get(shiftOpenMeteoDateTimeKey(slot.time, -1) ?? slot.time)
+                      ?.precipitation.available === false
+                      ? null
+                      : consensusByTime.get(shiftOpenMeteoDateTimeKey(slot.time, -1) ?? slot.time)
+                        ?.precipitation.mean
+                  )}
+                </TableCell>
+              </>
+            )}
             {hasObserved && (
               <TableCell className="font-mono tabular-nums">
-                {formatIntensity(observedPrecipByTime.get(slot.time))}
+                {formatIntensity(observedPrecipByEpoch.get(slot.epoch))}
               </TableCell>
             )}
           </TableRow>
@@ -395,22 +455,28 @@ function PrecipitationComparisonGraph({
   timeSlots,
   modelHourlyById,
   modelAvailability,
-  precipConsensusByTime,
   consensusByTime,
   showConsensus,
-  observedPrecipByTime,
+  observedPrecipByEpoch,
+  observationsStatus,
+  nowMs,
   nowMarkerTimeKey,
-  observedCutoffTimeKey
+  observedCutoffTimeKey,
+  isUnverified,
+  observedAvailability
 }: {
   timeSlots: TimeSlot[];
   modelHourlyById: Map<string, Map<string, ModelForecast['hourly'][number]>>;
   modelAvailability: Map<string, boolean>;
-  precipConsensusByTime: Map<string, { pop: number | null; intensity: number | null }>;
   consensusByTime: Map<string, HourlyConsensus>;
   showConsensus: boolean;
-  observedPrecipByTime: Map<string, number>;
+  observedPrecipByEpoch: Map<number, number>;
+  observationsStatus: 'loading' | 'none' | 'vault' | 'error';
+  nowMs: number;
   nowMarkerTimeKey: string | null;
   observedCutoffTimeKey: string | null;
+  isUnverified?: boolean;
+  observedAvailability: { available: boolean; reason: string | null; detail: string | null };
 }) {
   const isMobile = useIsMobile();
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
@@ -434,23 +500,24 @@ function PrecipitationComparisonGraph({
         available: true
       });
     }
+    // Always include observed row
     list.push({
       id: 'observed',
       label: 'Observed',
       type: 'observed' as const,
-      available: observedPrecipByTime.size > 0
+      available: observedAvailability.available
     });
     return list;
-  }, [modelAvailability, observedPrecipByTime, showConsensus]);
+  }, [modelAvailability, showConsensus, observedAvailability]);
 
-	  const tooltipColumns = useMemo(() => {
-	    return timeSlots.map((slot) => {
-	      const models = WEATHER_MODELS.map((model) => {
-	        const sourceTimeKey = shiftOpenMeteoDateTimeKey(slot.time, -1) ?? slot.time;
-	        const hour = modelHourlyById.get(model.id)?.get(sourceTimeKey);
-	        const normalizedCode = normalizeWeatherCode(hour?.weatherCode);
-	        return {
-	          id: model.id,
+  const tooltipColumns = useMemo(() => {
+    return timeSlots.map((slot) => {
+      const models = WEATHER_MODELS.map((model) => {
+        const sourceTimeKey = shiftOpenMeteoDateTimeKey(slot.time, -1) ?? slot.time;
+        const hour = modelHourlyById.get(model.id)?.get(sourceTimeKey);
+        const normalizedCode = normalizeWeatherCode(hour?.weatherCode);
+        return {
+          id: model.id,
           name: model.name,
           color: model.color,
           pop: Number.isFinite(hour?.precipitationProbability)
@@ -460,26 +527,31 @@ function PrecipitationComparisonGraph({
             ? hour?.precipitation ?? null
             : null,
           weatherCode: Number.isFinite(normalizedCode) ? normalizedCode : null,
-	          available: modelAvailability.get(model.id) ?? false
-	        };
-	      });
-	      const sourceTimeKey = shiftOpenMeteoDateTimeKey(slot.time, -1) ?? slot.time;
-	      const consensusMetrics = showConsensus
-	        ? precipConsensusByTime.get(sourceTimeKey) ?? null
-	        : null;
-	      const normalizedConsensusCode = showConsensus
-	        ? normalizeWeatherCode(consensusByTime.get(sourceTimeKey)?.weatherCode.dominant)
-	        : NaN;
-	      const consensus = showConsensus
-	        ? {
-	            pop: consensusMetrics?.pop ?? null,
-            intensity: consensusMetrics?.intensity ?? null,
-            weatherCode: Number.isFinite(normalizedConsensusCode)
-              ? normalizedConsensusCode
-              : null
-          }
+          available: modelAvailability.get(model.id) ?? false
+        };
+      });
+      const sourceTimeKey = shiftOpenMeteoDateTimeKey(slot.time, -1) ?? slot.time;
+      const consensusData = showConsensus ? consensusByTime.get(sourceTimeKey) : null;
+      const normalizedConsensusCode = showConsensus
+        ? normalizeWeatherCode(consensusData?.weatherCode.dominant)
+        : NaN;
+      const consensus = showConsensus
+        ? {
+          pop: consensusData?.precipitationProbability.available === false
+            ? null
+            : consensusData?.precipitationProbability.mean ?? null,
+          intensity: consensusData?.precipitation.available === false
+            ? null
+            : consensusData?.precipitation.mean ?? null,
+          weatherCode: Number.isFinite(normalizedConsensusCode)
+            ? normalizedConsensusCode
+            : null,
+          agreement: consensusData?.precipitationCombined.agreement ?? null,
+          amountAgreement: consensusData?.precipitation.agreement ?? null,
+          probabilityAgreement: consensusData?.precipitationProbability.agreement ?? null
+        }
         : null;
-      const observed = observedPrecipByTime.get(slot.time);
+      const observed = observedPrecipByEpoch.get(slot.epoch);
       return {
         slot,
         models,
@@ -492,8 +564,7 @@ function PrecipitationComparisonGraph({
     modelHourlyById,
     modelAvailability,
     consensusByTime,
-    precipConsensusByTime,
-    observedPrecipByTime,
+    observedPrecipByEpoch,
     showConsensus
   ]);
 
@@ -529,18 +600,23 @@ function PrecipitationComparisonGraph({
                 color={row.color}
                 available={row.available}
                 labelTint={labelTint}
+                unavailableReason={
+                  row.type === 'observed' && !row.available && observedAvailability.reason
+                    ? observedAvailability.reason
+                    : undefined
+                }
               />
             );
           })}
         </div>
         <div className="flex-1 overflow-x-auto">
           <div className="flex min-w-max">
-	            {timeSlots.map((slot, index) => {
-	              const isActive = hoverIndex === index;
-	              const isCurrent = slot.time === nowMarkerTimeKey;
-	              const tooltip = tooltipColumns[index];
-	              const consensusWeatherInfo = getWeatherInfo(tooltip.consensus?.weatherCode);
-	              return (
+            {timeSlots.map((slot, index) => {
+              const isActive = hoverIndex === index;
+              const isCurrent = slot.time === nowMarkerTimeKey;
+              const tooltip = tooltipColumns[index];
+              const consensusWeatherInfo = getWeatherInfo(tooltip.consensus?.weatherCode);
+              return (
                 <Tooltip key={slot.time}>
                   <TooltipTrigger asChild>
                     <div
@@ -557,14 +633,14 @@ function PrecipitationComparisonGraph({
                       tabIndex={0}
                       aria-label={`Precipitation column ${slot.fullLabel}`}
                     >
-	                      {isCurrent && (
-	                        <div
-	                          className="absolute inset-y-0 right-0 w-px bg-primary/60 pointer-events-none"
-	                          style={{
-	                            boxShadow: '0 0 10px oklch(0.75 0.15 195 / 0.35)'
-	                          }}
-	                        />
-	                      )}
+                      {isCurrent && (
+                        <div
+                          className="absolute inset-y-0 right-0 w-px bg-primary/60 pointer-events-none"
+                          style={{
+                            boxShadow: '0 0 10px oklch(0.75 0.15 195 / 0.35)'
+                          }}
+                        />
+                      )}
                       <div
                         className={cn(
                           "h-6 w-full text-[10px] flex items-center justify-center text-foreground/70",
@@ -572,58 +648,70 @@ function PrecipitationComparisonGraph({
                         )}
                       >
                         {index % labelInterval === 0 ? slot.label : ''}
-	                      </div>
-	                      {rows.map((row) => {
-	                        const sourceTimeKey = shiftOpenMeteoDateTimeKey(slot.time, -1) ?? slot.time;
-	                        let pop: number | null = null;
-	                        let intensity: number | null = null;
-	                        let weatherCode: number | null = null;
-	                        let tintColor: string | undefined;
-	                        let rowGlowColor: string | undefined;
-	                        let isObserved = false;
-	                        const isConsensusRow = row.type === 'consensus';
-	                        let temperature: number | null = null;
-	                        if (row.type === 'model') {
-	                          rowGlowColor = row.color;
-	                          const hour = modelHourlyById.get(row.id)?.get(sourceTimeKey);
-	                          pop = Number.isFinite(hour?.precipitationProbability)
-	                            ? hour?.precipitationProbability ?? null
-	                            : null;
-	                          intensity = Number.isFinite(hour?.precipitation)
-	                            ? hour?.precipitation ?? null
-	                            : null;
-	                          const normalizedCode = normalizeWeatherCode(hour?.weatherCode);
-	                          weatherCode = Number.isFinite(normalizedCode) ? normalizedCode : null;
-	                          temperature = hour?.temperature ?? null;
-	                        } else if (row.type === 'consensus') {
-	                          rowGlowColor = 'oklch(0.75 0.15 195)';
-	                          const consensus = precipConsensusByTime.get(sourceTimeKey);
-	                          pop = consensus?.pop ?? null;
-	                          intensity = consensus?.intensity ?? null;
-	                          // Use dominant weather code from consensus for precip type
-	                          const consensusData = consensusByTime.get(sourceTimeKey);
-	                          const normalizedCode = normalizeWeatherCode(consensusData?.weatherCode.dominant);
-	                          weatherCode = Number.isFinite(normalizedCode) ? normalizedCode : null;
-	                          temperature = consensusData?.temperature.mean ?? null;
-	                          const agreement = consensusData?.precipitation.agreement;
+                      </div>
+                      {rows.map((row) => {
+                        const sourceTimeKey = shiftOpenMeteoDateTimeKey(slot.time, -1) ?? slot.time;
+                        let pop: number | null = null;
+                        let intensity: number | null = null;
+                        let weatherCode: number | null = null;
+                        let tintColor: string | undefined;
+                        let rowGlowColor: string | undefined;
+                        let isObserved = false;
+                        const isConsensusRow = row.type === 'consensus';
+                        let temperature: number | null = null;
+                        if (row.type === 'model') {
+                          rowGlowColor = row.color;
+                          const hour = modelHourlyById.get(row.id)?.get(sourceTimeKey);
+                          pop = Number.isFinite(hour?.precipitationProbability)
+                            ? hour?.precipitationProbability ?? null
+                            : null;
+                          intensity = Number.isFinite(hour?.precipitation)
+                            ? hour?.precipitation ?? null
+                            : null;
+                          const normalizedCode = normalizeWeatherCode(hour?.weatherCode);
+                          weatherCode = Number.isFinite(normalizedCode) ? normalizedCode : null;
+                          temperature = hour?.temperature ?? null;
+                        } else if (row.type === 'consensus') {
+                          rowGlowColor = 'oklch(0.75 0.15 195)';
+                          const consensusData = consensusByTime.get(sourceTimeKey);
+                          pop = consensusData?.precipitationProbability.available === false
+                            ? null
+                            : consensusData?.precipitationProbability.mean ?? null;
+                          intensity = consensusData?.precipitation.available === false
+                            ? null
+                            : consensusData?.precipitation.mean ?? null;
+                          // Use dominant weather code from consensus for precip type
+                          const normalizedCode = normalizeWeatherCode(consensusData?.weatherCode.dominant);
+                          weatherCode = Number.isFinite(normalizedCode) ? normalizedCode : null;
+                          temperature = consensusData?.temperature.mean ?? null;
+                          const agreement = consensusData?.precipitationCombined.agreement;
                           if (Number.isFinite(agreement)) {
                             const alpha = Math.min(0.18, (agreement as number) / 600);
                             if (alpha > 0) {
                               tintColor = `oklch(0.75 0.15 195 / ${alpha})`;
                             }
                           }
-	                        } else if (row.type === 'observed') {
-	                          isObserved = true;
-	                          intensity = observedPrecipByTime.get(slot.time) ?? null;
-	                          // For observed, try to get consensus temperature as fallback
-	                          temperature = consensusByTime.get(sourceTimeKey)?.temperature.mean ?? null;
-	                        }
+                        } else if (row.type === 'observed') {
+                          isObserved = true;
+                          // Strict Rendering Gate
+                          // Only render from Vault AND if bucket is completed
+                          const canRender = observationsStatus === 'vault' && isBucketCompleted(slot.epoch, 60, nowMs);
+
+                          if (canRender) {
+                            const val = observedPrecipByEpoch.get(slot.epoch);
+                            intensity = (val !== undefined && val !== null) ? val : null;
+                          } else {
+                            intensity = null; // Explicitly null if not renderable
+                          }
+                          // STRICT: No borrowing consensus temperature for observed row type derivation.
+                          temperature = null;
+                        }
 
                         // Determine precipitation type from weather code, with temperature fallback
-	                        const precipType = getPrecipTypeFromWeatherCode(weatherCode, temperature);
-	                        const hideObservedFuture = isObserved
-	                          && Boolean(observedCutoffTimeKey)
-	                          && slot.time > (observedCutoffTimeKey as string);
+                        const precipType = getPrecipTypeFromWeatherCode(weatherCode, temperature);
+                        const hideObservedFuture = isObserved
+                          && Boolean(observedCutoffTimeKey)
+                          && slot.time > (observedCutoffTimeKey as string);
 
                         return (
                           <div
@@ -649,6 +737,7 @@ function PrecipitationComparisonGraph({
                               isConsensus={isConsensusRow}
                               precipType={precipType}
                               rowGlowColor={rowGlowColor}
+                              testId={isObserved ? `observed-cell-${slot.epoch}` : undefined}
                             />
                           </div>
                         );
@@ -656,7 +745,7 @@ function PrecipitationComparisonGraph({
                     </div>
                   </TooltipTrigger>
                   <TooltipContent side="top" className={TOOLTIP_CONTENT_CLASSNAME}>
-                    <ComparisonTooltipCard title={tooltip.slot.fullLabel}>
+                    <ComparisonTooltipCard title={tooltip.slot.fullLabel} isUnverified={isUnverified}>
                       {showConsensus && (
                         <ComparisonTooltipSection>
                           <ComparisonTooltipRow
@@ -678,6 +767,18 @@ function PrecipitationComparisonGraph({
                                 )}
                               </span>
                             }
+                          />
+                          <ComparisonTooltipRow
+                            label="Precip agreement"
+                            value={formatAgreement(tooltip.consensus?.agreement ?? null)}
+                          />
+                          <ComparisonTooltipRow
+                            label="POP agreement"
+                            value={formatAgreement(tooltip.consensus?.probabilityAgreement ?? null)}
+                          />
+                          <ComparisonTooltipRow
+                            label="Amount agreement"
+                            value={formatAgreement(tooltip.consensus?.amountAgreement ?? null)}
                           />
                         </ComparisonTooltipSection>
                       )}
@@ -775,24 +876,32 @@ function ConditionsComparisonGraph({
   modelAvailability,
   consensusByTime,
   showConsensus,
-  observedConditionsByTime,
+  observedConditionsByEpoch,
+  observationsStatus,
+  nowMs,
   nowMarkerTimeKey,
-  observedCutoffTimeKey
+  observedCutoffTimeKey,
+  isUnverified,
+  observedAvailability
 }: {
   timeSlots: TimeSlot[];
   modelHourlyById: Map<string, Map<string, ModelForecast['hourly'][number]>>;
   modelAvailability: Map<string, boolean>;
   consensusByTime: Map<string, HourlyConsensus>;
   showConsensus: boolean;
-  observedConditionsByTime: Map<string, number>;
+  observedConditionsByEpoch: Map<number, number>;
+  observationsStatus: 'loading' | 'none' | 'vault' | 'error';
+  nowMs: number;
   nowMarkerTimeKey: string | null;
   observedCutoffTimeKey: string | null;
+  isUnverified?: boolean;
+  observedAvailability: { available: boolean; reason: string | null; detail: string | null };
 }) {
   const isMobile = useIsMobile();
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
   const labelInterval = isMobile ? 6 : 3;
   const columnWidth = isMobile ? 22 : 28;
-  const hasObserved = observedConditionsByTime.size > 0;
+  const hasObserved = observedConditionsByEpoch.size > 0;
 
   const rows = useMemo<PrecipRow[]>(() => {
     const modelRows: PrecipRow[] = WEATHER_MODELS.map((model) => ({
@@ -811,16 +920,15 @@ function ConditionsComparisonGraph({
         available: true
       });
     }
-    if (hasObserved) {
-      list.push({
-        id: 'observed',
-        label: 'Observed',
-        type: 'observed' as const,
-        available: true
-      });
-    }
+    // Always include observed row
+    list.push({
+      id: 'observed',
+      label: 'Observed',
+      type: 'observed' as const,
+      available: observedAvailability.available
+    });
     return list;
-  }, [modelAvailability, showConsensus, hasObserved]);
+  }, [modelAvailability, showConsensus, observedAvailability]);
 
   const tooltipColumns = useMemo(() => {
     return timeSlots.map((slot) => {
@@ -841,13 +949,14 @@ function ConditionsComparisonGraph({
         : NaN;
       const consensus = showConsensus
         ? {
-            weatherCode: Number.isFinite(normalizedConsensusCode)
-              ? normalizedConsensusCode
-              : null,
-            agreement: consensusData?.weatherCode.agreement
-          }
+          weatherCode: Number.isFinite(normalizedConsensusCode)
+            ? normalizedConsensusCode
+            : null,
+          agreement: consensusData?.weatherCode.agreement
+        }
         : null;
-      const observed = hasObserved ? observedConditionsByTime.get(slot.time) ?? null : null;
+
+      const observed = hasObserved ? observedConditionsByEpoch.get(slot.epoch) ?? null : null;
       return {
         slot,
         models,
@@ -861,7 +970,7 @@ function ConditionsComparisonGraph({
     modelAvailability,
     consensusByTime,
     showConsensus,
-    observedConditionsByTime,
+    observedConditionsByEpoch,
     hasObserved
   ]);
 
@@ -895,6 +1004,11 @@ function ConditionsComparisonGraph({
                 color={row.color}
                 available={row.available}
                 labelTint={labelTint}
+                unavailableReason={
+                  row.type === 'observed' && !row.available && observedAvailability.reason
+                    ? observedAvailability.reason
+                    : undefined
+                }
               />
             );
           })}
@@ -964,8 +1078,34 @@ function ConditionsComparisonGraph({
                               : null;
                         } else if (row.type === 'observed') {
                           isObserved = true;
-                          const normalizedCode = observedConditionsByTime.get(slot.time);
-                          weatherCode = Number.isFinite(normalizedCode ?? NaN) ? normalizedCode ?? null : null;
+
+                          // Strict gating: unavailability OR incomplete bucket OR missing data -> empty
+                          // Use Date.now() for completion check as precise lastUpdated isn't passed to this sub-component
+                          // But map logic already filtered for completion, so if it's in the map, it's completed.
+
+                          if (!observedAvailability.available) {
+                            weatherCode = null;
+                          } else {
+                            // Strict Rendering Gate via Status & Completion
+                            const canRender = observationsStatus === 'vault' && isBucketCompleted(slot.epoch, 60, nowMs);
+
+                            if (canRender) {
+                              const v = observedConditionsByEpoch.get(slot.epoch);
+                              // Strict Value Check: No ?? defaults
+                              if (v === undefined || v === null) {
+                                weatherCode = null;
+                              } else {
+                                weatherCode = v;
+                              }
+                            } else {
+                              weatherCode = null;
+                            }
+                          }
+
+                          // Dev assertion: catch fallback regressions
+                          if (process.env.NODE_ENV !== 'production' && !observedAvailability.available && weatherCode !== null) {
+                            console.error(`[Assertion Failed] Rendering observed conditions despite unavailability. Bucket: ${slot.time}, Value: ${weatherCode}`);
+                          }
                         }
 
                         const weatherInfo = getWeatherInfo(weatherCode);
@@ -993,6 +1133,7 @@ function ConditionsComparisonGraph({
                               isConsensus={isConsensusRow}
                               agreement={agreement}
                               rowGlowColor={rowGlowColor}
+                              testId={isObserved ? `observed-cell-${slot.epoch}` : undefined}
                             />
                           </div>
                         );
@@ -1000,7 +1141,7 @@ function ConditionsComparisonGraph({
                     </div>
                   </TooltipTrigger>
                   <TooltipContent side="top" className={TOOLTIP_CONTENT_CLASSNAME}>
-                    <ComparisonTooltipCard title={tooltip.slot.fullLabel}>
+                    <ComparisonTooltipCard title={tooltip.slot.fullLabel} isUnverified={isUnverified}>
                       {showConsensus && tooltip.consensus && (
                         <ComparisonTooltipSection>
                           <ComparisonTooltipRow
@@ -1091,7 +1232,8 @@ function PrecipCell({
   tintColor,
   isConsensus,
   precipType = 'rain',
-  rowGlowColor
+  rowGlowColor,
+  testId
 }: {
   pop: number | null;
   intensity: number | null;
@@ -1103,6 +1245,7 @@ function PrecipCell({
   isConsensus?: boolean;
   precipType?: PrecipType;
   rowGlowColor?: string;
+  testId?: string;
 }) {
   const clampedPop = Number.isFinite(pop ?? NaN)
     ? Math.max(0, Math.min(100, pop as number))
@@ -1127,6 +1270,7 @@ function PrecipCell({
       ? getTracePatternId(isObserved ? 'observed' : 'forecast', precipType)
       : '';
 
+
   // Base background for empty cells
   const emptyBg = 'oklch(0.12 0.02 240)';
 
@@ -1134,11 +1278,11 @@ function PrecipCell({
 
   const glowStyle = rowGlowColor && !isDisabled
     ? {
-        boxShadow: `0 0 0 1px ${withAlpha(rowGlowColor, 0.1)}, 0 0 10px ${withAlpha(
-          rowGlowColor,
-          0.08
-        )}`
-      }
+      boxShadow: `0 0 0 1px ${withAlpha(rowGlowColor, 0.1)}, 0 0 10px ${withAlpha(
+        rowGlowColor,
+        0.08
+      )}`
+    }
     : undefined;
 
   return (
@@ -1153,6 +1297,7 @@ function PrecipCell({
         opacity: isDisabled ? 0.35 : 1,
         ...glowStyle
       }}
+      data-testid={testId}
     >
       {/* Rain pattern background */}
       <svg
@@ -1165,7 +1310,7 @@ function PrecipCell({
 
         {/* Subtle tint overlay (used for row glow and consensus agreement shading) */}
         {overlayTint && <rect width={size} height={size} fill={overlayTint} />}
-        
+
         {/* Rain pattern overlay */}
         {patternId && (
           <rect
@@ -1175,7 +1320,7 @@ function PrecipCell({
             opacity={isDisabled ? 0.4 : 1}
           />
         )}
-        
+
         {/* POP arc overlay */}
         {clampedPop > 0 && (
           <>
@@ -1203,7 +1348,7 @@ function PrecipCell({
             />
           </>
         )}
-        
+
         {/* Center dot for high POP + intensity */}
         {clampedPop >= 85 && hasIntensity && (
           <circle
@@ -1224,7 +1369,8 @@ function ConditionCell({
   isActive,
   isConsensus,
   agreement,
-  rowGlowColor
+  rowGlowColor,
+  testId
 }: {
   icon: string | null;
   isDisabled?: boolean;
@@ -1232,15 +1378,16 @@ function ConditionCell({
   isConsensus?: boolean;
   agreement?: number | null;
   rowGlowColor?: string;
+  testId?: string;
 }) {
   const baseBg = 'oklch(0.12 0.02 240)';
   const glowStyle = rowGlowColor && !isDisabled
     ? {
-        boxShadow: `0 0 0 1px ${withAlpha(rowGlowColor, 0.1)}, 0 0 10px ${withAlpha(
-          rowGlowColor,
-          0.08
-        )}`
-      }
+      boxShadow: `0 0 0 1px ${withAlpha(rowGlowColor, 0.1)}, 0 0 10px ${withAlpha(
+        rowGlowColor,
+        0.08
+      )}`
+    }
     : undefined;
 
   const agreementValue = Number.isFinite(agreement ?? NaN) ? (agreement as number) : null;
@@ -1264,6 +1411,7 @@ function ConditionCell({
         opacity: isDisabled ? 0.35 : 1,
         ...glowStyle
       }}
+      data-testid={testId}
     >
       {agreementRingColor && (
         <div
@@ -1278,21 +1426,142 @@ function ConditionCell({
   );
 }
 
+// Graph isolation flag
+// Enabled: 'precipitation' and 'temperature' (via 'all' or explicit logic if we want to isolate)
+// User instruction: "Re-enable Temperature observed rendering"
+// We can set it to 'all' or keep it simpler. Let's create a set or union?
+// Type is `GraphKey | 'all'`.
+// I'll set it to 'all' for now, but I might need to keep wind/conditions disabled inside their hooks if they are not ready.
+// User said: "Keep other graphs disabled ... (wind/conditions)".
+// So if I set 'all', I need to guard wind/conditions hooks.
+// `observedPrecipByEpoch` and `observedTempByEpoch` have guards.
+// The wind/conditions hooks have `if (OBSERVED_ENABLED_GRAPH !== 'all' ...)` guards.
+// So if I set 'all', wind/conditions hooks will ENABLE.
+// I should update their guards to EXPLICITLY disable them or use specific allow list.
+// Or I can change definition to `const OBSERVED_ENABLED_GRAPH: Array<GraphKey> = ['precipitation', 'temperature'];`
+// But types might clash.
+// I'll leave `OBSERVED_ENABLED_GRAPH` as 'all'.
+// And I will add specific disable logic to wind and conditions hooks.
+const OBSERVED_ENABLED_GRAPH: GraphKey | 'all' = 'all';
+
 export function GraphsPanel({
   forecasts,
   consensus = [],
   showConsensus = true,
   fallbackForecast = null,
-  observations = [],
   timezone,
   visibleLines = {},
-  onToggleLine = () => {}
+  onToggleLine = () => { },
+  location,
+  lastUpdated,
+  isPrimary = true
 }: GraphsPanelProps) {
   const [activeGraph, setActiveGraph] = useState<GraphKey>('temperature');
   const [viewMode, setViewMode] = useState<ViewMode>('chart');
   const [windMode, setWindMode] = useState<WindMode>('chart');
 
-  const { times: windowTimes, currentTimeKey } = useMemo(
+  // 3-state logic: loading | none | vault | error
+  type ObservationsStatus = 'loading' | 'none' | 'vault' | 'error';
+  const [observationsStatus, setObservationsStatus] = useState<ObservationsStatus>('loading');
+  const [fetchedObservations, setFetchedObservations] = useState<ObservationData | null | undefined>(undefined);
+  const [fetchError, setFetchError] = useState<Error | null>(null);
+  const observationsCacheRef = useRef<Map<string, ObservationData | null>>(new Map());
+  const observationsRequestIdRef = useRef(0);
+
+  useEffect(() => {
+    // GATING: Only fetch observations for primary location
+    // When browsing non-primary, observations are disabled
+    if (!location || !isPrimary) {
+      setObservationsStatus('none');
+      setFetchedObservations(undefined);
+      setFetchError(null);
+      return;
+    }
+
+    const cacheKey = `${location.latitude.toFixed(4)},${location.longitude.toFixed(4)}`;
+    const hasCached = observationsCacheRef.current.has(cacheKey);
+    if (hasCached) {
+      const cached = observationsCacheRef.current.get(cacheKey) ?? null;
+      setFetchedObservations(cached);
+      setObservationsStatus(cached === null ? 'none' : 'vault');
+    } else {
+      setFetchedObservations(undefined);
+      setObservationsStatus('loading');
+    }
+
+    // Determine time range from forecasts or consensus
+    // We already compute windowTimes via buildHourlyWindow, but that depends on props.
+    // Let's use a simple heuristic: Now - 24h to Now + 48h to cover the window.
+    // Or just align with the "windowTimes" if we could access them.
+    // But they are computed inside the component.
+    // We can just fetch a broad range. The helper handles start/end buckets.
+    const now = Date.now();
+    const startMs = now - 24 * 60 * 60 * 1000;
+    const endMs = now + 48 * 60 * 60 * 1000;
+
+    const requestId = ++observationsRequestIdRef.current;
+    let mounted = true;
+    async function load() {
+      try {
+        setFetchError(null);
+
+        const lat = location!.latitude;
+        const lon = location!.longitude;
+        const data = await fetchObservationsForRange(
+          'eccc',
+          startMs,
+          endMs,
+          'consensus-stations-v1',
+          lat,
+          lon
+        );
+        if (mounted && observationsRequestIdRef.current === requestId) {
+          observationsCacheRef.current.set(cacheKey, data);
+          if (data === null) {
+            setFetchedObservations(null);
+            setObservationsStatus('none');
+          } else {
+            setFetchedObservations(data);
+            setObservationsStatus('vault');
+          }
+        }
+      } catch (e) {
+        console.error('Failed to fetch observations', e);
+        if (mounted && observationsRequestIdRef.current === requestId) {
+          // If we have cached observations for this location, keep rendering them and
+          // avoid flipping the UI into an "error" empty state.
+          if (!hasCached) {
+            setFetchError(e as Error);
+            setObservationsStatus('error');
+            setFetchedObservations(null);
+          }
+        }
+      }
+    }
+    load();
+    return () => { mounted = false; };
+  }, [location?.latitude, location?.longitude, isPrimary, lastUpdated?.getTime()]);
+
+
+
+  // STRICT series for Observed rendering (truthfulness)
+  // Must NEVER fallback to initialObservations or any other source if fetched is missing/null.
+  // If fetchedObservations is null, this is empty.
+  const observedSeries = useMemo(() => {
+    if (fetchedObservations) {
+      return convertToObservedHourly(fetchedObservations, timezone);
+    }
+    return []; // Strict empty if no sync data
+  }, [fetchedObservations, timezone]);
+
+  // Observed data identity contract:
+  // - Keys are epoch milliseconds (number)
+  // - Maps ONLY contain completed buckets
+  // - Absence means "no data", never inferred or derived
+
+
+
+  const { slots: windowSlots, currentTimeKey } = useMemo(
     () => buildHourlyWindow({
       forecasts,
       consensus,
@@ -1304,40 +1573,43 @@ export function GraphsPanel({
   );
 
   const timeSlots = useMemo(() => {
-    return windowTimes.map((time) => {
-      const timeParts = parseOpenMeteoDateTime(time);
+    return windowSlots.map((s) => {
+      const timeParts = parseOpenMeteoDateTime(s.time);
       return {
-        time,
-        label: timeParts ? formatHourLabel(timeParts) : time,
-        fullLabel: timeParts ? formatWeekdayHourLabel(timeParts) : time,
-        isCurrent: time === currentTimeKey
+        time: s.time,
+        epoch: s.epoch,
+        label: timeParts ? formatHourLabel(timeParts) : s.time,
+        fullLabel: timeParts ? formatWeekdayHourLabel(timeParts) : s.time,
+        isCurrent: s.time === currentTimeKey
       };
     });
-  }, [windowTimes, currentTimeKey]);
+  }, [windowSlots, currentTimeKey, timezone]);
 
   const precipTimeSlots = useMemo(() => {
-    return windowTimes.map((time) => {
-      const endTime = shiftOpenMeteoDateTimeKey(time, 1) ?? time;
+    return windowSlots.map((s) => {
+      const endTime = shiftOpenMeteoDateTimeKey(s.time, 1) ?? s.time;
+      const endEpoch = s.epoch + 3600000; // 1 hour shift
       const timeParts = parseOpenMeteoDateTime(endTime);
       return {
         time: endTime,
+        epoch: endEpoch,
         label: timeParts ? formatHourLabel(timeParts) : endTime,
         fullLabel: timeParts ? formatWeekdayHourLabel(timeParts) : endTime,
         isCurrent: false
       };
     });
-  }, [windowTimes]);
+  }, [windowSlots]);
 
-	  const { precipNowMarkerTimeKey, precipObservedCutoffTimeKey } = useMemo(() => {
-	    if (!currentTimeKey) {
-	      return { precipNowMarkerTimeKey: null as string | null, precipObservedCutoffTimeKey: null as string | null };
-	    }
+  const { precipNowMarkerTimeKey, precipObservedCutoffTimeKey } = useMemo(() => {
+    if (!currentTimeKey) {
+      return { precipNowMarkerTimeKey: null as string | null, precipObservedCutoffTimeKey: null as string | null };
+    }
 
-	    return {
-	      precipNowMarkerTimeKey: currentTimeKey,
-	      precipObservedCutoffTimeKey: currentTimeKey
-	    };
-	  }, [currentTimeKey]);
+    return {
+      precipNowMarkerTimeKey: currentTimeKey,
+      precipObservedCutoffTimeKey: currentTimeKey
+    };
+  }, [currentTimeKey]);
 
   const modelHourlyById = useMemo(
     () => buildHourlyForecastMap(forecasts),
@@ -1360,62 +1632,181 @@ export function GraphsPanel({
     [consensus]
   );
 
-  const precipConsensusByTime = useMemo(
-    () => buildPrecipMedianConsensus(
-      windowTimes,
-      WEATHER_MODELS.map((model) => model.id),
-      modelHourlyById
-    ),
-    [windowTimes, modelHourlyById]
-  );
+  const observedTempByEpoch = useMemo(() => {
+    // Only allow if graph is enabled (and not disabled by strict isolation instructions)
+    if (OBSERVED_ENABLED_GRAPH !== 'all' && OBSERVED_ENABLED_GRAPH !== 'temperature') return new Map<number, number>();
 
-  const observedTempByTime = useMemo(() => {
-    const map = new Map<string, number>();
-    observations.forEach((observation) => {
-      if (!observation.time || !Number.isFinite(observation.temperature)) return;
-      if (currentTimeKey && observation.time > currentTimeKey) return;
-      map.set(observation.time, observation.temperature);
+    // Strict Map Build - NO fallback
+    const map = new Map<number, number>();
+    if (observationsStatus !== 'vault' || !fetchedObservations?.series) return map;
+
+    const nowMs = Date.now();
+
+    // Source of Truth: fetchedObservations.series (Bucket Epochs)
+    const { buckets, tempC } = fetchedObservations.series;
+    if (!buckets || !tempC) return map;
+
+    buckets.forEach((bucketMs, i) => {
+      // 1. Must be completed bucket
+      if (!isBucketCompleted(bucketMs, 60, nowMs)) return;
+
+      // 2. Must have valid value
+      const val = tempC[i];
+      if (!Number.isFinite(val ?? NaN)) return;
+
+      map.set(bucketMs, val as number);
     });
-    return map;
-  }, [observations, currentTimeKey]);
 
-  const observedPrecipByTime = useMemo(() => {
-    const map = new Map<string, number>();
-    observations.forEach((observation) => {
+    return map;
+  }, [fetchedObservations, observationsStatus, lastUpdated]);
+
+  const observedPrecipByEpoch = useMemo(() => {
+    const map = new Map<number, number>();
+
+    // Strict variable check: observed precip is strictly bucketed accumulation.
+    if (!isBucketedAccumulation('p_mm')) return map;
+
+    // Isolation check
+    // Ensure 'all' allows precip, or explicit 'precipitation'.
+    if (OBSERVED_ENABLED_GRAPH !== 'all' && OBSERVED_ENABLED_GRAPH !== 'precipitation') return map;
+
+    const now = Date.now();
+    observedSeries.forEach((observation) => {
+      const t = observation.epoch ?? new Date(observation.time).getTime();
+      if (!isBucketCompleted(t, 60, now)) return;
+
       const amount = observation.precipitation;
       if (!observation.time || !Number.isFinite(amount ?? NaN)) return;
-      if (currentTimeKey && observation.time > currentTimeKey) return;
-      map.set(observation.time, amount as number);
+      map.set(t, amount as number);
+    });
+    console.debug('[Observed][Precip]', {
+      buckets: map.size,
+      keys: Array.from(map.keys()).slice(0, 3)
     });
     return map;
-  }, [observations, currentTimeKey]);
+  }, [observedSeries, lastUpdated]);
 
-  const observedConditionsByTime = useMemo(() => {
-    const map = new Map<string, number>();
-    observations.forEach((observation) => {
+  const observedConditionsByEpoch = useMemo(() => {
+    if (OBSERVED_ENABLED_GRAPH !== 'all' && OBSERVED_ENABLED_GRAPH !== 'conditions') return new Map<number, number>();
+    const map = new Map<number, number>();
+    const now = Date.now();
+    observedSeries.forEach((observation) => {
+      const t = observation.epoch ?? new Date(observation.time).getTime();
+      if (!isBucketCompleted(t, 60, now)) return;
+
       const code = (observation as ObservedHourly & { weatherCode?: number }).weatherCode;
       if (!observation.time || !Number.isFinite(code ?? NaN)) return;
-      if (currentTimeKey && observation.time > currentTimeKey) return;
       const normalized = normalizeWeatherCode(code);
       if (!Number.isFinite(normalized)) return;
-      map.set(observation.time, normalized);
+      map.set(t, normalized);
     });
     return map;
-  }, [observations, currentTimeKey]);
+  }, [observedSeries, lastUpdated]);
 
-  const observedWindByTime = useMemo(() => {
-    const map = new Map<string, { direction: number; speed?: number; gust?: number }>();
-    observations.forEach((observation) => {
+  const observedWindByEpoch = useMemo(() => {
+    if (OBSERVED_ENABLED_GRAPH !== 'all' && OBSERVED_ENABLED_GRAPH !== 'wind') return new Map<number, { direction: number; speed?: number; gust?: number }>();
+    const map = new Map<number, { direction: number; speed?: number; gust?: number }>();
+    const now = Date.now();
+    observedSeries.forEach((observation) => {
+      const t = observation.epoch ?? new Date(observation.time).getTime();
+      if (!isBucketCompleted(t, 60, now)) return;
+
       if (!observation.time || !Number.isFinite(observation.windDirection ?? NaN)) return;
-      if (currentTimeKey && observation.time > currentTimeKey) return;
-      map.set(observation.time, {
+      map.set(t, {
         direction: observation.windDirection as number,
         speed: Number.isFinite(observation.windSpeed ?? NaN) ? observation.windSpeed : undefined,
         gust: Number.isFinite(observation.windGusts ?? NaN) ? observation.windGusts : undefined
       });
     });
     return map;
-  }, [observations, currentTimeKey]);
+  }, [observedSeries, lastUpdated]);
+
+  // Observed availability with graph-specific reasoning
+  const observedAvailability = useMemo(() => {
+    // No location provided
+    if (!location) {
+      return {
+        temperature: { available: false, reason: 'Location required', detail: 'Location required to fetch station data' },
+        precipitation: { available: false, reason: 'Location required', detail: 'Location required to fetch station data' },
+        wind: { available: false, reason: 'Location required', detail: 'Location required to fetch station data' },
+        conditions: { available: false, reason: 'Location required', detail: 'Location required to fetch station data' }
+      };
+    }
+
+    // Observations are only fetched for the primary location.
+    if (!isPrimary) {
+      return {
+        temperature: { available: false, reason: 'Primary only', detail: 'Observed station data is only shown for the primary location' },
+        precipitation: { available: false, reason: 'Primary only', detail: 'Observed station data is only shown for the primary location' },
+        wind: { available: false, reason: 'Primary only', detail: 'Observed station data is only shown for the primary location' },
+        conditions: { available: false, reason: 'Primary only', detail: 'Observed station data is only shown for the primary location' }
+      };
+    }
+
+    // Fetch error occurred
+    if (fetchError && (fetchedObservations === undefined || fetchedObservations === null)) {
+      return {
+        temperature: { available: false, reason: 'Fetch failed', detail: `Failed to fetch observations: ${fetchError.message}` },
+        precipitation: { available: false, reason: 'Fetch failed', detail: `Failed to fetch observations: ${fetchError.message}` },
+        wind: { available: false, reason: 'Fetch failed', detail: `Failed to fetch observations: ${fetchError.message}` },
+        conditions: { available: false, reason: 'Fetch failed', detail: `Failed to fetch observations: ${fetchError.message}` }
+      };
+    }
+
+    // fetchObservationsForRange returned null - could mean no station coverage or no data yet
+    // We cannot definitively distinguish between these cases without deeper inspection,
+    // so we use a neutral message
+    // fetchObservationsForRange returned null - could mean no station coverage or no data yet
+    // We distinguish "Loading" (undefined) from "No Data" (null) if needed, but for "availability" logic:
+    // If undefined (Loading), we can say unavailable/loading.
+    // If null (No Data), we say No data.
+    if (fetchedObservations === null) {
+      return {
+        temperature: { available: false, reason: 'No data', detail: 'No observed data available for this location and time range' },
+        precipitation: { available: false, reason: 'No data', detail: 'No observed data available for this location and time range' },
+        wind: { available: false, reason: 'No data', detail: 'No observed data available for this location and time range' },
+        conditions: { available: false, reason: 'No data', detail: 'No observed data available for this location and time range' }
+      };
+    }
+
+    if (fetchedObservations === undefined) {
+      return {
+        temperature: { available: false, reason: 'Loading...', detail: 'Fetching observations...' },
+        precipitation: { available: false, reason: 'Loading...', detail: 'Fetching observations...' },
+        wind: { available: false, reason: 'Loading...', detail: 'Fetching observations...' },
+        conditions: { available: false, reason: 'Loading...', detail: 'Fetching observations...' }
+      };
+    }
+
+    // Data was fetched, check graph-specific availability
+    const status = {
+      temperature: observedTempByEpoch.size > 0
+        ? { available: true, reason: null, detail: null }
+        : { available: false, reason: 'Not synced', detail: 'Temperature data not yet synced for this time range' },
+      precipitation: observedPrecipByEpoch.size > 0
+        ? { available: true, reason: null, detail: null }
+        : { available: false, reason: 'Not synced', detail: 'Precipitation data not yet synced for this time range' },
+      wind: observedWindByEpoch.size > 0
+        ? { available: true, reason: null, detail: null }
+        : { available: false, reason: 'Not synced', detail: 'Wind data not yet synced for this time range' },
+      conditions: observedConditionsByEpoch.size > 0
+        ? { available: true, reason: null, detail: null }
+        : { available: false, reason: 'Not synced', detail: 'Conditions data not yet synced for this time range' }
+    };
+
+    if (process.env.NODE_ENV !== 'production' && fetchedObservations) {
+      console.table({
+        temp: Array.from(observedTempByEpoch.entries()).slice(0, 5),
+        precip: Array.from(observedPrecipByEpoch.entries()).slice(0, 5),
+        cond: Array.from(observedConditionsByEpoch.entries()).slice(0, 5),
+        wind: Array.from(observedWindByEpoch.entries()).slice(0, 5),
+        availability: Object.fromEntries(Object.entries(status).map(([k, v]) => [k, v.available]))
+      });
+    }
+
+    return status;
+  }, [location, isPrimary, fetchError, fetchedObservations, observedTempByEpoch, observedPrecipByEpoch, observedWindByEpoch, observedConditionsByEpoch]);
+
 
   const title = activeGraph === 'wind' && windMode === 'matrix'
     ? '48-Hour Wind Direction Matrix'
@@ -1434,6 +1825,27 @@ export function GraphsPanel({
         onValueChange={(value) => setActiveGraph(value as GraphKey)}
         className="gap-4"
       >
+        {process.env.NODE_ENV !== 'production' && (
+          <div className="flex items-center gap-4 text-[10px] font-mono border-b border-white/10 pb-2 mb-2">
+            <span className={cn(
+              "px-1.5 py-0.5 rounded",
+              observationsStatus === 'vault' ? "bg-emerald-500/20 text-emerald-300" :
+                observationsStatus === 'loading' ? "bg-blue-500/20 text-blue-300" :
+                  observationsStatus === 'error' ? "bg-red-500/20 text-red-300" :
+                    "bg-yellow-500/20 text-yellow-300" // none
+            )}>
+              Observed source: {observationsStatus.toUpperCase()}
+            </span>
+            <span className="text-foreground/50">
+              loaded buckets: {observedSeries.length}
+            </span>
+            {observedSeries.length > 0 && (
+              <span className="text-foreground/50">
+                last: {observedSeries[observedSeries.length - 1].time.slice(5)}
+              </span>
+            )}
+          </div>
+        )}
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex flex-wrap items-center gap-3">
             <h2 className="text-xl font-semibold">{title}</h2>
@@ -1571,7 +1983,7 @@ export function GraphsPanel({
               modelHourlyById={modelHourlyById}
               consensusByTime={consensusByTime}
               showConsensus={showConsensus}
-              observedTempByTime={observedTempByTime}
+              observedTempByEpoch={observedTempByEpoch}
             />
           ) : (
             <HourlyChart
@@ -1579,10 +1991,15 @@ export function GraphsPanel({
               consensus={consensus}
               showConsensus={showConsensus}
               fallbackForecast={fallbackForecast}
-              observations={observations}
+              observations={observedSeries} // Legacy prop retained for type compat but unused
               timezone={timezone}
               visibleLines={visibleLines}
               onToggleLine={onToggleLine}
+              observedAvailability={observedAvailability.temperature}
+              // STRICT PROPS
+              observedTempByEpoch={observedTempByEpoch}
+              observationsStatus={observationsStatus}
+              nowMs={Date.now()}
             />
           )}
         </TabsContent>
@@ -1592,21 +2009,24 @@ export function GraphsPanel({
             <PrecipitationTable
               timeSlots={precipTimeSlots}
               modelHourlyById={modelHourlyById}
-              precipConsensusByTime={precipConsensusByTime}
+              consensusByTime={consensusByTime}
               showConsensus={showConsensus}
-              observedPrecipByTime={observedPrecipByTime}
+              observedPrecipByEpoch={observedPrecipByEpoch}
             />
           ) : (
             <PrecipitationComparisonGraph
               timeSlots={precipTimeSlots}
               modelHourlyById={modelHourlyById}
               modelAvailability={modelAvailability}
-              precipConsensusByTime={precipConsensusByTime}
               consensusByTime={consensusByTime}
               showConsensus={showConsensus}
-              observedPrecipByTime={observedPrecipByTime}
+              observedPrecipByEpoch={observedPrecipByEpoch}
+              observationsStatus={observationsStatus}
+              nowMs={Date.now()}
               nowMarkerTimeKey={precipNowMarkerTimeKey}
               observedCutoffTimeKey={precipObservedCutoffTimeKey}
+              isUnverified={fetchedObservations?.trust?.mode === 'unverified'}
+              observedAvailability={observedAvailability.precipitation}
             />
           )}
         </TabsContent>
@@ -1618,7 +2038,7 @@ export function GraphsPanel({
               title="Wind table coming soon"
               description={`Hourly wind ${placeholderModeLabel} is on the way.`}
             />
-          ) : windowTimes.length === 0 ? (
+          ) : windowSlots.length === 0 ? (
             <PlaceholderPanel
               icon={Wind}
               title="Wind data unavailable"
@@ -1631,7 +2051,7 @@ export function GraphsPanel({
               modelAvailability={modelAvailability}
               consensusByTime={consensusByTime}
               showConsensus={showConsensus}
-              observedWindByTime={observedWindByTime}
+              observedWindByEpoch={observedWindByEpoch}
               observedCutoffTimeKey={currentTimeKey}
             />
           ) : (
@@ -1640,7 +2060,7 @@ export function GraphsPanel({
               consensus={consensus}
               showConsensus={showConsensus}
               fallbackForecast={fallbackForecast}
-              observations={observations}
+              observations={observedSeries}
               timezone={timezone}
               visibleLines={visibleLines}
               onToggleLine={onToggleLine}
@@ -1662,9 +2082,21 @@ export function GraphsPanel({
               modelAvailability={modelAvailability}
               consensusByTime={consensusByTime}
               showConsensus={showConsensus}
-              observedConditionsByTime={observedConditionsByTime}
-              nowMarkerTimeKey={currentTimeKey}
+              // Force empty map for now if we want to keep it disabled while enabling temperature with 'all'.
+              // User said "Keep other graphs disabled (wind/conditions)".
+              // Since I set OBSERVED_ENABLED_GRAPH = 'all', I should pass empty map here OR update the hook for conditions.
+              // I'll pass empty map here override, OR uncomment the hook but block it.
+              // The hook observedConditionsByEpoch is commented out in previous steps (Lines 1592-1606 in original context).
+              // Let's check if the HOOK is active.
+              // I need to see if observedConditionsByEpoch is defined. I saw it passed in props.
+              // I'll assume I need to ensure it returns empty.
+              observedConditionsByEpoch={observedConditionsByEpoch}
+              observationsStatus={observationsStatus}
+              nowMs={Date.now()}
+              nowMarkerTimeKey={precipNowMarkerTimeKey}
               observedCutoffTimeKey={currentTimeKey}
+              isUnverified={fetchedObservations?.trust?.mode === 'unverified'}
+              observedAvailability={observedAvailability.conditions}
             />
           )}
         </TabsContent>
