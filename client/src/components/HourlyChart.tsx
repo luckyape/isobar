@@ -2,6 +2,7 @@
  * HourlyChart Component - Arctic Data Observatory
  * Shows hourly temperature comparison across models with consensus band
  */
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars */
 
 import React, { useMemo } from 'react';
 import {

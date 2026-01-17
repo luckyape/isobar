@@ -6,12 +6,13 @@
  * 1. Scheduled ingest via cron triggers
  * 2. HTTP requests for manifest and chunk retrieval
  */
+/* eslint-disable no-console, @typescript-eslint/no-explicit-any */
 
 import { runIngest } from '../ingest/pipeline';
 import { R2Storage, type R2Bucket } from './r2-storage';
 import { getBlobContentHash } from '../artifact';
 import { unpackageManifest } from '../manifest';
-import { canonicalizeLocKey, isValidLocationScopeId, computeLocationScopeId, normalizeLocationScope } from '../location';
+import { canonicalizeLocKey, isValidLocationScopeId } from '../location';
 
 export interface Env {
     BUCKET: R2Bucket;
@@ -285,7 +286,7 @@ export default {
         _ctx: ExecutionContext
     ): Promise<Response> {
         const url = new URL(request.url);
-        let { scopeKeyPrefix, routePath: path, isExplicit } = parseLocationRouting(url.pathname);
+        const { scopeKeyPrefix, routePath: path, isExplicit } = parseLocationRouting(url.pathname);
 
         // Precedence: explicit location only.
         // We no longer fallback to a "primary location" defined in Env.

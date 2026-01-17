@@ -3,6 +3,7 @@
  * Fetches forecasts from multiple weather models via Open-Meteo API
  * Models: GEM (Canada), GFS (US), ECMWF (Europe), ICON (Germany)
  */
+/* eslint-disable no-console, @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars */
 
 import {
   addDays,

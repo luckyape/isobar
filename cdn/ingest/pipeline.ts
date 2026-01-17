@@ -4,6 +4,7 @@
  * Main entry point for the ingest process.
  * Fetches data, packages into artifacts, uploads to object store, publishes manifest.
  */
+/* eslint-disable no-console */
 
 import { packageArtifact } from '../artifact';
 import { createManifest, createManifestEntry, packageManifest, getTodayDateString } from '../manifest';

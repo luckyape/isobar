@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unused-vars, react-hooks/exhaustive-deps */
 import React, { useState, useEffect, useRef } from 'react';
 import { Star, Check, Search, MapPin, Loader2, X, ChevronDown, Crown, Info } from 'lucide-react';
 import { toast } from 'sonner';

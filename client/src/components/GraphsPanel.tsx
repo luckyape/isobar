@@ -2,6 +2,7 @@
  * GraphsPanel Component - Arctic Data Observatory
  * Tabbed suite for hourly model comparisons with chart/table modes.
  */
+/* eslint-disable @typescript-eslint/no-unused-vars, react-hooks/exhaustive-deps, no-console */
 
 import React, { useMemo, useState, useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';

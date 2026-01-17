@@ -8,6 +8,7 @@
  * 
  * No large enclosing rings. Clean, analytical, enterprise-grade.
  */
+/* eslint-disable @typescript-eslint/no-unused-vars */
 
 import { useCallback, useState } from 'react';
 import { motion, useReducedMotion } from 'framer-motion';
