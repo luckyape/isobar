@@ -1687,7 +1687,7 @@ function mapObservationArtifactToObservedConditions(artifacts: ObservationArtifa
       precipitation: (artifact.data as any)['precipMm']?.[stationId] ?? undefined,
       windSpeed: (artifact.data as any)['windSpdKmh']?.[stationId] ?? undefined,
       windDirection: (artifact.data as any)['windDirDeg']?.[stationId] ?? undefined,
-      windGusts: (artifact.data as any)['windGustMs']?.[stationId] ?? undefined
+      windGusts: (artifact.data as any)['windGustKph']?.[stationId] ?? undefined
     }];
   });
 

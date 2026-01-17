@@ -115,10 +115,11 @@ describe('Precipitation Observed Overlay', () => {
     it('renders observed precip pattern for completed buckets (bucketed accumulation)', async () => {
         (isBucketedAccumulation as any).mockReturnValue(true);
 
-        const nowMs = Date.now();
-        const nowHourMs = Math.floor(nowMs / 3600_000) * 3600_000;
-        const targetBucketMs = nowHourMs - 2 * 3600_000;
-        (fetchObservationsForRange as any).mockResolvedValue(makeObs(targetBucketMs, 2.5));
+	        const nowMs = Date.now();
+	        const nowHourMs = Math.floor(nowMs / 3600_000) * 3600_000;
+	        const targetBucketMs = nowHourMs - 2 * 3600_000;
+	        const targetBucketEndMs = targetBucketMs + 3600_000;
+	        (fetchObservationsForRange as any).mockResolvedValue(makeObs(targetBucketMs, 2.5));
 
         render(
             <GraphsPanel
@@ -131,17 +132,18 @@ describe('Precipitation Observed Overlay', () => {
         await waitFor(() => expect(fetchObservationsForRange).toHaveBeenCalled());
         await selectPrecipTab();
 
-        const cell = screen.getByTestId(`observed-cell-${targetBucketMs}`);
-        expect(cell.innerHTML).toContain('url(#');
+	        const cell = screen.getByTestId(`observed-cell-${targetBucketEndMs}`);
+	        expect(cell.innerHTML).toContain('url(#');
     });
 
     it('does not render observed precip when variable is not bucketed accumulation', async () => {
         (isBucketedAccumulation as any).mockReturnValue(false);
 
-        const nowMs = Date.now();
-        const nowHourMs = Math.floor(nowMs / 3600_000) * 3600_000;
-        const targetBucketMs = nowHourMs - 2 * 3600_000;
-        (fetchObservationsForRange as any).mockResolvedValue(makeObs(targetBucketMs, 2.5));
+	        const nowMs = Date.now();
+	        const nowHourMs = Math.floor(nowMs / 3600_000) * 3600_000;
+	        const targetBucketMs = nowHourMs - 2 * 3600_000;
+	        const targetBucketEndMs = targetBucketMs + 3600_000;
+	        (fetchObservationsForRange as any).mockResolvedValue(makeObs(targetBucketMs, 2.5));
 
         render(
             <GraphsPanel
@@ -155,18 +157,19 @@ describe('Precipitation Observed Overlay', () => {
         await waitFor(() => expect(fetchObservationsForRange).toHaveBeenCalled());
         await selectPrecipTab();
 
-        const cell = screen.getByTestId(`observed-cell-${targetBucketMs}`);
-        expect(cell.innerHTML).not.toContain('url(#');
-        expect(isBucketedAccumulation).toHaveBeenCalledWith('p_mm');
+	        const cell = screen.getByTestId(`observed-cell-${targetBucketEndMs}`);
+	        expect(cell.innerHTML).not.toContain('url(#');
+	        expect(isBucketedAccumulation).toHaveBeenCalledWith('p_mm');
     });
 
     it('does not render future buckets even if data is present', async () => {
         (isBucketedAccumulation as any).mockReturnValue(true);
 
-        const nowMs = Date.now();
-        const nowHourMs = Math.floor(nowMs / 3600_000) * 3600_000;
-        const futureBucketMs = nowHourMs + 1 * 3600_000;
-        (fetchObservationsForRange as any).mockResolvedValue(makeObs(futureBucketMs, 2.5));
+	        const nowMs = Date.now();
+	        const nowHourMs = Math.floor(nowMs / 3600_000) * 3600_000;
+	        const futureBucketMs = nowHourMs + 1 * 3600_000;
+	        const futureBucketEndMs = futureBucketMs + 3600_000;
+	        (fetchObservationsForRange as any).mockResolvedValue(makeObs(futureBucketMs, 2.5));
 
         render(
             <GraphsPanel
@@ -180,7 +183,7 @@ describe('Precipitation Observed Overlay', () => {
         await waitFor(() => expect(fetchObservationsForRange).toHaveBeenCalled());
         await selectPrecipTab();
 
-        const cell = screen.getByTestId(`observed-cell-${futureBucketMs}`);
-        expect(cell.innerHTML).not.toContain('url(#');
+	        const cell = screen.getByTestId(`observed-cell-${futureBucketEndMs}`);
+	        expect(cell.innerHTML).not.toContain('url(#');
     });
 });

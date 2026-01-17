@@ -1753,7 +1753,9 @@ export function GraphsPanel({
 
       const amount = observation.precipitation;
       if (!observation.time || !Number.isFinite(amount ?? NaN)) return;
-      map.set(t, amount as number);
+      // Precip graphs are rendered as bucket-END aligned (bars end at the hour),
+      // so key precip values by bucket end epoch for consistent lookup.
+      map.set(bucketEndMs(t, 60), amount as number);
     });
     console.debug('[Observed][Precip]', {
       buckets: map.size,
