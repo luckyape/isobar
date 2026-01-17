@@ -17,6 +17,19 @@ export interface Env {
     BUCKET: R2Bucket;
     /** Optional Ed25519 private key (hex) for signing manifests. Configure via `wrangler secret put`. */
     MANIFEST_PRIVATE_KEY_HEX?: string;
+    /**
+     * Optional JSON array of ingest targets for scheduled jobs.
+     *
+     * Example:
+     * [
+     *   { "latitude": 44.65, "longitude": -63.57, "timezone": "America/Halifax" }
+     * ]
+     */
+    INGEST_LOCATIONS_JSON?: string;
+    /** Legacy single-location scheduled ingest (fallback when `INGEST_LOCATIONS_JSON` is unset). */
+    INGEST_LATITUDE?: string;
+    INGEST_LONGITUDE?: string;
+    INGEST_TIMEZONE?: string;
 }
 
 const CORS_HEADERS: Record<string, string> = {
@@ -111,18 +124,150 @@ function addUtcDays(date: string, deltaDays: number): string | null {
 export default {
     /**
      * Handle scheduled cron triggers for ingest.
-     * 
-     * NOTE: Scheduled ingest is currently disabled as we have removed the hardcoded
-     * single-location environment variables (INGEST_LATITUDE/LONGITUDE).
-     * Future work will implement a multi-location scheduler.
+     *
+     * Uses `INGEST_LOCATIONS_JSON` (preferred) or legacy `INGEST_LATITUDE`/`INGEST_LONGITUDE`/`INGEST_TIMEZONE`.
+     *
+     * Cron conventions:
+     * - Hourly (`0 * * * *`): observations only
+     * - Every 6h (`0 *\/6 * * *`): forecasts only
+     * - Anything else: forecasts + observations
      */
     async scheduled(
         controller: ScheduledController,
         env: Env,
         _ctx: ExecutionContext
     ): Promise<void> {
-        console.log(`[cron] Ingest triggered at ${new Date().toISOString()} (No-op: Waiting for multi-location scheduler)`);
-        // Previously used INGEST_LATITUDE/LONGITUDE/TIMEZONE here.
+        const cron = typeof controller.cron === 'string' ? controller.cron.trim() : '';
+
+        const defaultInclude = (() => {
+            if (/^0\s+\*\/6\s+\*\s+\*\s+\*$/.test(cron) || cron.includes('*/6')) {
+                return { includeForecasts: true, includeObservations: false };
+            }
+            if (/^0\s+\*\s+\*\s+\*\s+\*$/.test(cron)) {
+                return { includeForecasts: false, includeObservations: true };
+            }
+            return { includeForecasts: true, includeObservations: true };
+        })();
+
+        const parseNumber = (value: unknown): number | null => {
+            const n = typeof value === 'number' ? value : Number(value);
+            return Number.isFinite(n) ? n : null;
+        };
+
+        type IngestTarget = {
+            latitude: number;
+            longitude: number;
+            timezone?: string;
+            includeForecasts?: boolean;
+            includeObservations?: boolean;
+            publishLegacyGlobal?: boolean;
+        };
+
+        const parseTargets = (): IngestTarget[] => {
+            const raw = env.INGEST_LOCATIONS_JSON?.trim();
+            if (raw) {
+                try {
+                    const parsed = JSON.parse(raw) as unknown;
+                    const arr = Array.isArray(parsed) ? parsed : null;
+                    if (!arr) throw new Error('INGEST_LOCATIONS_JSON must be a JSON array');
+
+                    const out: IngestTarget[] = [];
+                    for (const entry of arr) {
+                        if (!entry || typeof entry !== 'object') continue;
+                        const e = entry as Record<string, unknown>;
+                        const latitude = parseNumber(e.latitude);
+                        const longitude = parseNumber(e.longitude);
+                        if (latitude === null || longitude === null) continue;
+                        out.push({
+                            latitude,
+                            longitude,
+                            timezone: typeof e.timezone === 'string' ? e.timezone : undefined,
+                            includeForecasts: typeof e.includeForecasts === 'boolean' ? e.includeForecasts : undefined,
+                            includeObservations: typeof e.includeObservations === 'boolean' ? e.includeObservations : undefined,
+                            publishLegacyGlobal: typeof e.publishLegacyGlobal === 'boolean' ? e.publishLegacyGlobal : undefined
+                        });
+                    }
+                    return out;
+                } catch (error) {
+                    console.error('[cron] Failed to parse INGEST_LOCATIONS_JSON; falling back to legacy vars', {
+                        error: (error as Error)?.message ?? String(error)
+                    });
+                }
+            }
+
+            const latitude = parseNumber(env.INGEST_LATITUDE);
+            const longitude = parseNumber(env.INGEST_LONGITUDE);
+            if (latitude === null || longitude === null) return [];
+            return [
+                {
+                    latitude,
+                    longitude,
+                    timezone: env.INGEST_TIMEZONE || 'UTC'
+                }
+            ];
+        };
+
+        const targets = parseTargets();
+        if (targets.length === 0) {
+            console.warn('[cron] No ingest targets configured; set INGEST_LOCATIONS_JSON or legacy INGEST_LATITUDE/INGEST_LONGITUDE');
+            return;
+        }
+
+        const storage = new R2Storage(env.BUCKET);
+        const manifestSigningKeyHex = env.MANIFEST_PRIVATE_KEY_HEX?.trim() || undefined;
+        const scheduledAt = Number.isFinite((controller as any).scheduledTime)
+            ? new Date((controller as any).scheduledTime)
+            : new Date();
+
+        console.log('[cron] ingest start', {
+            cron,
+            scheduledAt: scheduledAt.toISOString(),
+            targets: targets.length,
+            defaults: defaultInclude
+        });
+
+        for (const target of targets) {
+            const includeForecasts = target.includeForecasts ?? defaultInclude.includeForecasts;
+            const includeObservations = target.includeObservations ?? defaultInclude.includeObservations;
+            const timezone = target.timezone || 'UTC';
+
+            try {
+                const result = await runIngest({
+                    latitude: target.latitude,
+                    longitude: target.longitude,
+                    timezone,
+                    storage,
+                    manifestSigningKeyHex,
+                    includeForecasts,
+                    includeObservations,
+                    now: scheduledAt,
+                    // Multi-location scheduled ingest must not clobber global roots.
+                    publishLegacyGlobal: target.publishLegacyGlobal ?? false
+                });
+
+                console.log('[cron] ingest ok', {
+                    cron,
+                    latitude: target.latitude,
+                    longitude: target.longitude,
+                    timezone,
+                    includeForecasts,
+                    includeObservations,
+                    artifacts: result.artifacts.length,
+                    manifestHash: result.manifestHash,
+                    publishedAt: result.timestamp
+                });
+            } catch (error) {
+                console.error('[cron] ingest failed', {
+                    cron,
+                    latitude: target.latitude,
+                    longitude: target.longitude,
+                    timezone,
+                    includeForecasts,
+                    includeObservations,
+                    error: (error as Error)?.message ?? String(error)
+                });
+            }
+        }
     },
 
     /**

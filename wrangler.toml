@@ -8,12 +8,14 @@ compatibility_flags = ["nodejs_compat"]
 binding = "BUCKET"
 bucket_name = "weather-forecast-cdn"
 
-# Cron triggers for scheduled ingest (Temporarily disabled while moving to multi-location)
+# Cron triggers for scheduled ingest.
+# Requires `INGEST_LOCATIONS_JSON` (preferred) or legacy `INGEST_LATITUDE`/`INGEST_LONGITUDE`/`INGEST_TIMEZONE`.
 [triggers]
-# crons = ["0 */6 * * *", "0 * * * *"] 
+crons = ["0 */6 * * *", "0 * * * *"]
 
 # Environment variables
 [vars]
+INGEST_LOCATIONS_JSON = "[]"
 
 # Production environment
 [env.production]
