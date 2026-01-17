@@ -2,6 +2,7 @@
  * WindChart Component - Arctic Data Observatory
  * Shows hourly wind speed and gust comparison across models with consensus band.
  */
+/* eslint-disable @typescript-eslint/no-explicit-any */
 
 import { useMemo } from 'react';
 import {

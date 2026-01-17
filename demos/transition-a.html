@@ -17,6 +17,10 @@
       --shadow: 0 18px 60px rgba(0, 0, 0, .55);
       --radius: 22px;
       --ease: cubic-bezier(.2, .8, .2, 1);
+      --ease-in: cubic-bezier(.4, 0, .2, 1);
+      --ease-out: cubic-bezier(.16, 1, .3, 1);
+      --dur: 320ms;
+      --dur-fast: 170ms;
     }
 
     * {
@@ -37,8 +41,24 @@
         radial-gradient(1100px 700px at 70% 70%, rgba(64, 255, 180, .10), transparent 55%),
         linear-gradient(180deg, var(--bg0), var(--bg1));
       display: grid;
-      place-items: center;
-      overflow: hidden;
+      place-items: start center;
+      padding: 40px 0;
+      overflow-x: hidden;
+      overflow-y: auto;
+    }
+
+    .scrim {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, .42);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 170ms var(--ease-in);
+    }
+
+    body.open .scrim {
+      opacity: 1;
+      pointer-events: auto;
     }
 
     .wrap {
@@ -181,6 +201,90 @@
       padding: 4px 6px 0;
     }
 
+    .metric {
+      appearance: none;
+      border: 0;
+      background: transparent;
+      color: inherit;
+      padding: 10px 10px 8px;
+      border-radius: 16px;
+      display: grid;
+      grid-template-columns: 52px 1fr;
+      grid-template-rows: auto auto;
+      grid-template-areas:
+        "ring val"
+        "ring lbl";
+      column-gap: 10px;
+      align-items: center;
+      cursor: pointer;
+      user-select: none;
+      min-width: 112px;
+      outline: none;
+      transition: background-color var(--dur-fast) var(--ease-in), border-color var(--dur-fast) var(--ease-in);
+      border: 1px solid transparent;
+    }
+
+    .metric:hover {
+      background: rgba(255, 255, 255, .04);
+      border-color: rgba(255, 255, 255, .06);
+    }
+
+    .metric:focus-visible {
+      background: rgba(255, 255, 255, .05);
+      border-color: rgba(42, 230, 166, .30);
+      box-shadow: 0 0 0 3px rgba(42, 230, 166, .12);
+    }
+
+    .metric .ring {
+      grid-area: ring;
+      width: 52px;
+      height: 52px;
+      display: grid;
+      place-items: center;
+    }
+
+    .metric .ring svg {
+      width: 52px;
+      height: 52px;
+      transform: rotate(-90deg);
+    }
+
+    .metric circle {
+      fill: none;
+      stroke-width: 7;
+      stroke-linecap: round;
+      stroke-dasharray: 151;
+    }
+
+    .metric circle.bg {
+      stroke: rgba(255, 255, 255, .12);
+    }
+
+    .metric circle.fg {
+      stroke: var(--stroke);
+    }
+
+    .metric .val {
+      grid-area: val;
+      font-size: 20px;
+      font-weight: 760;
+      letter-spacing: .2px;
+      line-height: 1;
+    }
+
+    .metric .lbl {
+      grid-area: lbl;
+      font-size: 11px;
+      letter-spacing: 2.2px;
+      opacity: .62;
+      margin-top: 3px;
+    }
+
+    .metric[aria-pressed="true"] {
+      background: rgba(42, 230, 166, .06);
+      border-color: rgba(42, 230, 166, .14);
+    }
+
     .agreementDetails {
       margin-top: 10px;
       border-radius: 14px;
@@ -233,18 +337,26 @@
       font-weight: 650
     }
 
-    /* Evidence container: collapsing space */
+    /* Evidence container: collapses without height hacks (0fr -> 1fr) */
     .evidence {
       display: grid;
       grid-template-rows: 0fr;
-      transition: grid-template-rows 300ms var(--ease);
+      transition:
+        grid-template-rows var(--dur) var(--ease),
+        opacity var(--dur-fast) var(--ease-in),
+        transform var(--dur) var(--ease);
+      opacity: 0;
+      transform: translateY(-8px);
+      overflow: hidden;
     }
 
     body.open .evidence {
       grid-template-rows: 1fr;
+      opacity: 1;
+      transform: translateY(0);
     }
 
-    .evidence .models {
+    .evidence>* {
       min-height: 0;
     }
 
@@ -252,15 +364,16 @@
     .models {
       display: flex;
       gap: 14px;
-      opacity: 0;
-      transform: translateY(-6px);
-      pointer-events: none;
       overflow-x: auto;
       overflow-y: hidden;
       scroll-snap-type: x mandatory;
       -webkit-overflow-scrolling: touch;
       padding: 6px 6px 18px;
       mask-image: linear-gradient(90deg, transparent 0, black 28px, black calc(100% - 28px), transparent 100%);
+    }
+
+    body:not(.open) .models {
+      pointer-events: none;
     }
 
     .models::-webkit-scrollbar {
@@ -289,43 +402,37 @@
       min-height: 138px;
 
       opacity: 0;
-      transform: translateY(0) scale(.96);
-      filter: blur(6px);
+      transform: translateY(-10px) scale(.985);
+      filter: blur(2px);
+      will-change: transform, opacity;
 
       transition:
-        opacity 180ms var(--ease),
-        transform 180ms var(--ease),
-        filter 180ms var(--ease);
-    }
-
-    body.open .models {
-      opacity: 1;
-      transform: translateY(0);
-      transition: opacity 120ms ease 60ms, transform 180ms var(--ease) 60ms;
-      pointer-events: auto;
+        opacity var(--dur-fast) var(--ease),
+        transform var(--dur-fast) var(--ease),
+        filter var(--dur-fast) var(--ease);
     }
 
     body.open .model {
       opacity: 1;
-      transform: translateY(34px) scale(1);
+      transform: translateY(0) scale(1);
       filter: blur(0px);
     }
 
     /* stagger */
     body.open .model:nth-child(1) {
-      transition-delay: 0ms
+      transition-delay: 60ms
     }
 
     body.open .model:nth-child(2) {
-      transition-delay: 50ms
+      transition-delay: 95ms
     }
 
     body.open .model:nth-child(3) {
-      transition-delay: 100ms
+      transition-delay: 130ms
     }
 
     body.open .model:nth-child(4) {
-      transition-delay: 150ms
+      transition-delay: 165ms
     }
 
     .model .hdr {
@@ -393,11 +500,21 @@
       }
 
       .metric {
-        width: 92px
+        min-width: 98px;
+        grid-template-columns: 46px 1fr;
       }
 
-      body.open .model {
-        transform: translateY(26px) scale(1)
+      .metric .ring,
+      .metric .ring svg {
+        width: 46px;
+        height: 46px;
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      * {
+        transition-duration: 1ms !important;
+        animation-duration: 1ms !important;
       }
     }
   </style>
@@ -406,7 +523,7 @@
 <body>
   <div class="scrim" id="scrim" aria-hidden="true"></div>
 
-  <div class="wrap" role="application" aria-label="Consensus evidence demo">
+  <div class="wrap" aria-label="Consensus evidence demo">
     <div class="top">
       <div class="place">
         <div class="name">
@@ -432,8 +549,8 @@
         <span class="qual">· High</span>
       </div>
 
-      <div class="metrics" role="tablist" aria-label="Metric selectors">
-        <div class="metric" data-metric="temp" role="button" tabindex="0" aria-label="Temperature">
+      <div class="metrics" role="group" aria-label="Metric selectors">
+        <button class="metric" data-metric="temp" type="button" aria-label="Temperature" aria-pressed="false">
           <div class="ring">
             <svg viewBox="0 0 60 60" aria-hidden="true">
               <circle class="bg" cx="30" cy="30" r="24"></circle>
@@ -442,9 +559,9 @@
           </div>
           <div class="val">89</div>
           <div class="lbl">TEMP</div>
-        </div>
+        </button>
 
-        <div class="metric" data-metric="precip" role="button" tabindex="0" aria-label="Precipitation">
+        <button class="metric" data-metric="precip" type="button" aria-label="Precipitation" aria-pressed="false">
           <div class="ring">
             <svg viewBox="0 0 60 60" aria-hidden="true">
               <circle class="bg" cx="30" cy="30" r="24"></circle>
@@ -453,9 +570,10 @@
           </div>
           <div class="val">100</div>
           <div class="lbl">PRECIP</div>
-        </div>
+        </button>
 
-        <div class="metric wind" id="windBtn" data-metric="wind" role="button" tabindex="0" aria-label="Wind">
+        <button class="metric wind" id="windBtn" data-metric="wind" type="button" aria-label="Wind" aria-pressed="false"
+          aria-expanded="false" aria-controls="evidence">
           <div class="ring">
             <svg viewBox="0 0 60 60" aria-hidden="true">
               <circle class="bg" cx="30" cy="30" r="24"></circle>
@@ -464,9 +582,9 @@
           </div>
           <div class="val">68</div>
           <div class="lbl">WIND</div>
-        </div>
+        </button>
 
-        <div class="metric" data-metric="cond" role="button" tabindex="0" aria-label="Conditions">
+        <button class="metric" data-metric="cond" type="button" aria-label="Conditions" aria-pressed="false">
           <div class="ring">
             <svg viewBox="0 0 60 60" aria-hidden="true">
               <circle class="bg" cx="30" cy="30" r="24"></circle>
@@ -475,7 +593,7 @@
           </div>
           <div class="val">50</div>
           <div class="lbl">COND</div>
-        </div>
+        </button>
       </div>
       <div class="agreementDetails" aria-hidden="true">
         <div class="agreementDetailsInner">
@@ -487,8 +605,8 @@
       </div>
     </div>
 
-    <div class="evidence" aria-label="Evidence area">
-      <div class="models" id="models" aria-hidden="true">
+    <div class="evidence" id="evidence" aria-label="Evidence area" aria-hidden="true" inert>
+      <div class="models" id="models" tabindex="0" aria-roledescription="carousel" aria-label="Model evidence carousel">
         <div class="model">
           <div class="hdr"><span>ECMWF</span><span class="badge">Wind</span></div>
           <div class="big">20<span class="unit">km/h</span></div>
@@ -498,10 +616,6 @@
           <div class="hdr"><span>GFS</span><span class="badge">Wind</span></div>
           <div class="big">25<span class="unit">km/h</span></div>
           <div class="meta">→ W · gusty</div>
-          <p style="margin-top:12px; font-size:14px; line-height:1.4; opacity:.8">
-            Extended range forecast indicates increasing instability with potential for rapid development.
-            Consensus suggests preparing for higher gusts in exposed areas.
-          </p>
         </div>
         <div class="model">
           <div class="hdr"><span>ICON</span><span class="badge">Wind</span></div>
@@ -527,38 +641,56 @@
       const body = document.body;
       const windBtn = document.getElementById("windBtn");
       const scrim = document.getElementById("scrim");
+      const evidence = document.getElementById("evidence");
       const models = document.getElementById("models");
 
       const details = document.querySelector('.agreementDetails');
 
 
-      function setOpen(next) {
+      function setOpen(next, { focusEvidence = false } = {}) {
         body.classList.toggle("open", next);
-        models.setAttribute("aria-hidden", next ? "false" : "true");
+        windBtn.setAttribute("aria-expanded", next ? "true" : "false");
+        windBtn.setAttribute("aria-pressed", next ? "true" : "false");
+        scrim.setAttribute("aria-hidden", next ? "false" : "true");
+
+        if (evidence) {
+          evidence.setAttribute("aria-hidden", next ? "false" : "true");
+          evidence.toggleAttribute("inert", !next);
+        }
+
         if (details) {
           details.setAttribute('aria-hidden', next ? 'false' : 'true');
+          details.toggleAttribute("inert", !next);
+        }
+
+        if (!next) {
+          const active = document.activeElement;
+          if (active && evidence && evidence.contains(active)) {
+            windBtn.focus();
+          }
+        }
+
+        if (next && focusEvidence && models) {
+          requestAnimationFrame(() => models.focus({ preventScroll: true }));
         }
       }
 
-      function toggle() {
-        setOpen(!body.classList.contains("open"));
+      function toggle({ focusEvidence = false } = {}) {
+        setOpen(!body.classList.contains("open"), { focusEvidence });
       }
 
-      function onKeyActivate(e, fn) {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          fn();
-        }
-      }
-
-      windBtn.addEventListener("click", toggle);
-      windBtn.addEventListener("keydown", (e) => onKeyActivate(e, toggle));
+      windBtn.addEventListener("click", (e) => toggle({ focusEvidence: e.detail === 0 }));
       scrim.addEventListener("click", () => setOpen(false));
+      document.addEventListener("keydown", (e) => {
+        if (e.key === "Escape" && body.classList.contains("open")) {
+          e.preventDefault();
+          setOpen(false);
+        }
+      });
 
       // Optional: click any other metric just closes (keeps demo focused)
       document.querySelectorAll(".metric:not(.wind)").forEach((el) => {
         el.addEventListener("click", () => setOpen(false));
-        el.addEventListener("keydown", (e) => onKeyActivate(e, () => setOpen(false)));
       });
 
       // Start closed

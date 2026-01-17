@@ -233,7 +233,15 @@ export async function fetchObservations(
  * Extract run time from Open-Meteo response.
  * Falls back to current hour if not available.
  */
-function normalizeRunTime(data: any): string {
+type OpenMeteoHourly = {
+    time?: string[];
+};
+
+type OpenMeteoData = {
+    hourly?: OpenMeteoHourly;
+};
+
+function normalizeRunTime(data: OpenMeteoData): string {
     // Open-Meteo doesn't expose model run time directly
     // Use first forecast time as approximation
     if (data.hourly?.time?.[0]) {
@@ -310,7 +318,7 @@ function parseGmlPos(memberXml: string): { lat: number; lon: number } | null {
 
 function parseEcccCandidate(memberXml: string): EcccCurrentConditionsCandidate | null {
     // Station id from gml:id on the feature element.
-    const idMatch = memberXml.match(/gml:id=\"([^\"]+)\"/i);
+    const idMatch = memberXml.match(/gml:id="([^"]+)"/i);
     const stationId = idMatch?.[1]?.trim();
     if (!stationId) return null;
 

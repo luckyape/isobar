@@ -20,6 +20,7 @@ describe('Closet /closet JSON reflects CDN ingest data', () => {
     name: 'Montreal',
     latitude: 45.5017,
     longitude: -73.5673,
+    country: 'Canada',
     timezone: 'America/Toronto'
   };
 

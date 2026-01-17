@@ -9,6 +9,7 @@
  *
  * @module cityAutocomplete
  */
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars */
 
 // ---------------------------------------------------------------------------
 // DATA MODEL

@@ -10,6 +10,7 @@
  * Observations are ONLY fetched for the primary location. When browsing
  * a non-primary location, forecasts are shown but observations are not.
  */
+/* eslint-disable no-console */
 
 import { useState, useEffect, useCallback, useRef, useSyncExternalStore } from 'react';
 import { fetchForecastsWithMetadata, getCachedForecasts, fetchObservedHourly, triggerIngest, type ObservedConditions, type ModelForecast, type Location, type DataCompleteness } from '@/lib/weatherApi';

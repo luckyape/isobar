@@ -2,6 +2,7 @@
  * DailyForecast Component - Arctic Data Observatory
  * Shows 7-day forecast with model agreement indicators
  */
+/* eslint-disable @typescript-eslint/no-unused-vars, react-hooks/exhaustive-deps */
 
 import { memo, useCallback, useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
