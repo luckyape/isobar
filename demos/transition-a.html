@@ -1,0 +1,570 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Consensus → Evidence (Radial Decompression Demo)</title>
+  <style>
+    :root {
+      --bg0: #070b10;
+      --bg1: #0b1320;
+      --card: #0d1724cc;
+      --card2: #0b1522e6;
+      --stroke: #2ae6a6;
+      --muted: #a8b3c7;
+      --text: #eef3ff;
+      --shadow: 0 18px 60px rgba(0, 0, 0, .55);
+      --radius: 22px;
+      --ease: cubic-bezier(.2, .8, .2, 1);
+    }
+
+    * {
+      box-sizing: border-box
+    }
+
+    html,
+    body {
+      height: 100%
+    }
+
+    body {
+      margin: 0;
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
+      color: var(--text);
+      background:
+        radial-gradient(1400px 800px at 30% 20%, rgba(0, 215, 255, .12), transparent 55%),
+        radial-gradient(1100px 700px at 70% 70%, rgba(64, 255, 180, .10), transparent 55%),
+        linear-gradient(180deg, var(--bg0), var(--bg1));
+      display: grid;
+      place-items: center;
+      overflow: hidden;
+    }
+
+    .wrap {
+      width: min(760px, 92vw);
+      padding: 28px 22px 30px;
+      border-radius: 28px;
+      background: linear-gradient(180deg, rgba(255, 255, 255, .06), rgba(255, 255, 255, .02));
+      box-shadow: var(--shadow);
+      position: relative;
+      isolation: isolate;
+    }
+
+    .top {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 18px;
+    }
+
+    .place {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .place .name {
+      font-size: 40px;
+      letter-spacing: .2px;
+      font-weight: 750;
+    }
+
+    .place .sub {
+      font-size: 16px;
+      color: rgba(238, 243, 255, .72)
+    }
+
+    .dots {
+      display: inline-flex;
+      gap: 5px;
+      margin-left: 10px;
+      transform: translateY(-6px);
+    }
+
+    .dot {
+      width: 5px;
+      height: 5px;
+      border-radius: 50%;
+      background: #2ae6a6;
+    }
+
+    .dot:nth-child(2) {
+      background: #ffd24a
+    }
+
+    .dot:nth-child(3) {
+      background: #4fc3ff
+    }
+
+    .hero {
+      display: grid;
+      place-items: center;
+      margin: 20px 0 14px;
+      text-align: center;
+    }
+
+    .hero .icon {
+      font-size: 34px;
+      opacity: .9;
+      margin-bottom: 4px
+    }
+
+    .hero .temp {
+      font-size: 86px;
+      font-weight: 800;
+      letter-spacing: -1px;
+      line-height: 1
+    }
+
+    .hero .cond {
+      font-size: 14px;
+      letter-spacing: 2.2px;
+      opacity: .65;
+      margin-top: 10px
+    }
+
+    /* Agreement card */
+    .agreementCard {
+      width: min(520px, 100%);
+      margin: 10px auto 0;
+      border-radius: var(--radius);
+      background: radial-gradient(900px 500px at 30% 10%, rgba(255, 255, 255, .10), transparent 55%),
+        rgba(10, 18, 28, .75);
+      border: 1px solid rgba(255, 255, 255, .08);
+      padding: 18px 18px 16px;
+      position: relative;
+      z-index: 3;
+      overflow: hidden;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, .35);
+      transition:
+        opacity 120ms ease,
+        transform 180ms var(--ease),
+        padding 180ms var(--ease),
+        box-shadow 180ms var(--ease);
+    }
+
+    body.open .agreementCard {
+      opacity: .90;
+      transform: translateY(-3px);
+      padding: 20px 18px 16px;
+      box-shadow: 0 18px 60px rgba(0, 0, 0, .55);
+    }
+
+    .agreeRow {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      font-weight: 650;
+      margin-bottom: 14px;
+    }
+
+    .agreeRow .sigma {
+      opacity: .6
+    }
+
+    .agreeRow .score {
+      color: #2ae6a6
+    }
+
+    .agreeRow .qual {
+      color: #2ae6a6;
+      opacity: .9
+    }
+
+    .metrics {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 4px 6px 0;
+    }
+
+    .agreementDetails {
+      margin-top: 10px;
+      border-radius: 14px;
+      background: rgba(255, 255, 255, .04);
+      border: 1px solid rgba(255, 255, 255, .06);
+      color: rgba(238, 243, 255, .75);
+
+      /* Responsive expand/collapse without fixed heights */
+      display: grid;
+      grid-template-rows: 0fr;
+      transition:
+        grid-template-rows 240ms var(--ease),
+        opacity 160ms ease,
+        transform 220ms var(--ease);
+
+      opacity: 0;
+      overflow: hidden;
+      transform: translateY(-6px);
+    }
+
+    .agreementDetailsInner {
+      overflow: hidden;
+      padding: 10px 12px;
+    }
+
+    body.open .agreementDetails {
+      grid-template-rows: 1fr;
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    .agreementDetails .row {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      font-size: 12px;
+      letter-spacing: .2px;
+    }
+
+    .agreementDetails .row+.row {
+      margin-top: 8px
+    }
+
+    .agreementDetails .k {
+      opacity: .65
+    }
+
+    .agreementDetails .v {
+      opacity: .92;
+      font-weight: 650
+    }
+
+    /* Evidence container: collapsing space */
+    .evidence {
+      display: grid;
+      grid-template-rows: 0fr;
+      transition: grid-template-rows 300ms var(--ease);
+    }
+
+    body.open .evidence {
+      grid-template-rows: 1fr;
+    }
+
+    .evidence .models {
+      min-height: 0;
+    }
+
+    /* Model cards: stacked hidden -> fan down */
+    .models {
+      display: flex;
+      gap: 14px;
+      opacity: 0;
+      transform: translateY(-6px);
+      pointer-events: none;
+      overflow-x: auto;
+      overflow-y: hidden;
+      scroll-snap-type: x mandatory;
+      -webkit-overflow-scrolling: touch;
+      padding: 6px 6px 18px;
+      mask-image: linear-gradient(90deg, transparent 0, black 28px, black calc(100% - 28px), transparent 100%);
+    }
+
+    .models::-webkit-scrollbar {
+      height: 10px
+    }
+
+    .models::-webkit-scrollbar-track {
+      background: transparent
+    }
+
+    .models::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, .10);
+      border-radius: 999px
+    }
+
+    .model {
+      flex: 0 0 auto;
+      scroll-snap-align: start;
+      width: min(320px, 82vw);
+      border-radius: 20px;
+      background:
+        radial-gradient(600px 260px at 20% 10%, rgba(42, 230, 166, .14), transparent 55%),
+        rgba(10, 18, 28, .62);
+      border: 1px solid rgba(255, 255, 255, .08);
+      padding: 18px 18px 16px;
+      min-height: 138px;
+
+      opacity: 0;
+      transform: translateY(0) scale(.96);
+      filter: blur(6px);
+
+      transition:
+        opacity 180ms var(--ease),
+        transform 180ms var(--ease),
+        filter 180ms var(--ease);
+    }
+
+    body.open .models {
+      opacity: 1;
+      transform: translateY(0);
+      transition: opacity 120ms ease 60ms, transform 180ms var(--ease) 60ms;
+      pointer-events: auto;
+    }
+
+    body.open .model {
+      opacity: 1;
+      transform: translateY(34px) scale(1);
+      filter: blur(0px);
+    }
+
+    /* stagger */
+    body.open .model:nth-child(1) {
+      transition-delay: 0ms
+    }
+
+    body.open .model:nth-child(2) {
+      transition-delay: 50ms
+    }
+
+    body.open .model:nth-child(3) {
+      transition-delay: 100ms
+    }
+
+    body.open .model:nth-child(4) {
+      transition-delay: 150ms
+    }
+
+    .model .hdr {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 12px;
+      opacity: .92;
+      font-weight: 700;
+      letter-spacing: .4px;
+    }
+
+    .badge {
+      font-size: 12px;
+      padding: 4px 10px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, .06);
+      border: 1px solid rgba(255, 255, 255, .08);
+      color: rgba(238, 243, 255, .72);
+    }
+
+    .model .big {
+      font-size: 58px;
+      font-weight: 820;
+      letter-spacing: -.8px;
+      line-height: 1;
+    }
+
+    .model .unit {
+      font-size: 20px;
+      opacity: .75;
+      margin-left: 6px;
+      font-weight: 720
+    }
+
+    .model .meta {
+      margin-top: 10px;
+      color: rgba(238, 243, 255, .70);
+      font-size: 13px;
+      letter-spacing: .3px;
+    }
+
+    .footer {
+      margin-top: 18px;
+      color: rgba(238, 243, 255, .65);
+      font-size: 13px;
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    /* small screens */
+    @media (max-width: 560px) {
+      .place .name {
+        font-size: 34px
+      }
+
+      .hero .temp {
+        font-size: 74px
+      }
+
+      .metrics {
+        gap: 8px
+      }
+
+      .metric {
+        width: 92px
+      }
+
+      body.open .model {
+        transform: translateY(26px) scale(1)
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <div class="scrim" id="scrim" aria-hidden="true"></div>
+
+  <div class="wrap" role="application" aria-label="Consensus evidence demo">
+    <div class="top">
+      <div class="place">
+        <div class="name">
+          Roxville
+          <span class="dots" aria-hidden="true">
+            <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+          </span>
+        </div>
+        <div class="sub">Nova Scotia, Canada</div>
+      </div>
+    </div>
+
+    <div class="hero">
+      <div class="icon">☁️</div>
+      <div class="temp">-5°</div>
+      <div class="cond">OVERCAST</div>
+    </div>
+
+    <div class="agreementCard" id="agreementCard">
+      <div class="agreeRow">
+        <span class="sigma">Σ Agreement</span>
+        <span class="score">73</span>
+        <span class="qual">· High</span>
+      </div>
+
+      <div class="metrics" role="tablist" aria-label="Metric selectors">
+        <div class="metric" data-metric="temp" role="button" tabindex="0" aria-label="Temperature">
+          <div class="ring">
+            <svg viewBox="0 0 60 60" aria-hidden="true">
+              <circle class="bg" cx="30" cy="30" r="24"></circle>
+              <circle class="fg" cx="30" cy="30" r="24" style="stroke:#2ae6a6; stroke-dashoffset: 17;"></circle>
+            </svg>
+          </div>
+          <div class="val">89</div>
+          <div class="lbl">TEMP</div>
+        </div>
+
+        <div class="metric" data-metric="precip" role="button" tabindex="0" aria-label="Precipitation">
+          <div class="ring">
+            <svg viewBox="0 0 60 60" aria-hidden="true">
+              <circle class="bg" cx="30" cy="30" r="24"></circle>
+              <circle class="fg" cx="30" cy="30" r="24" style="stroke:#2ae6a6; stroke-dashoffset: 0;"></circle>
+            </svg>
+          </div>
+          <div class="val">100</div>
+          <div class="lbl">PRECIP</div>
+        </div>
+
+        <div class="metric wind" id="windBtn" data-metric="wind" role="button" tabindex="0" aria-label="Wind">
+          <div class="ring">
+            <svg viewBox="0 0 60 60" aria-hidden="true">
+              <circle class="bg" cx="30" cy="30" r="24"></circle>
+              <circle class="fg" cx="30" cy="30" r="24"></circle>
+            </svg>
+          </div>
+          <div class="val">68</div>
+          <div class="lbl">WIND</div>
+        </div>
+
+        <div class="metric" data-metric="cond" role="button" tabindex="0" aria-label="Conditions">
+          <div class="ring">
+            <svg viewBox="0 0 60 60" aria-hidden="true">
+              <circle class="bg" cx="30" cy="30" r="24"></circle>
+              <circle class="fg" cx="30" cy="30" r="24" style="stroke:#ffbe2e; stroke-dashoffset: 78;"></circle>
+            </svg>
+          </div>
+          <div class="val">50</div>
+          <div class="lbl">COND</div>
+        </div>
+      </div>
+      <div class="agreementDetails" aria-hidden="true">
+        <div class="agreementDetailsInner">
+          <div class="row"><span class="k">Selected</span><span class="v">Wind</span></div>
+          <div class="row"><span class="k">Spread</span><span class="v">20–25 km/h</span></div>
+          <div class="row"><span class="k">Why this matters</span><span class="v">Models diverge → show sources</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="evidence" aria-label="Evidence area">
+      <div class="models" id="models" aria-hidden="true">
+        <div class="model">
+          <div class="hdr"><span>ECMWF</span><span class="badge">Wind</span></div>
+          <div class="big">20<span class="unit">km/h</span></div>
+          <div class="meta">↘ W · steady</div>
+        </div>
+        <div class="model">
+          <div class="hdr"><span>GFS</span><span class="badge">Wind</span></div>
+          <div class="big">25<span class="unit">km/h</span></div>
+          <div class="meta">→ W · gusty</div>
+          <p style="margin-top:12px; font-size:14px; line-height:1.4; opacity:.8">
+            Extended range forecast indicates increasing instability with potential for rapid development.
+            Consensus suggests preparing for higher gusts in exposed areas.
+          </p>
+        </div>
+        <div class="model">
+          <div class="hdr"><span>ICON</span><span class="badge">Wind</span></div>
+          <div class="big">25<span class="unit">km/h</span></div>
+          <div class="meta">↗ W · variable</div>
+        </div>
+        <div class="model">
+          <div class="hdr"><span>GEM</span><span class="badge">Wind</span></div>
+          <div class="big">21<span class="unit">km/h</span></div>
+          <div class="meta">→ W · steady</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="footer">
+      <div>Based on 4 weather models</div>
+      <div>Updated 7:11 p.m.</div>
+    </div>
+  </div>
+
+  <script>
+    (function () {
+      const body = document.body;
+      const windBtn = document.getElementById("windBtn");
+      const scrim = document.getElementById("scrim");
+      const models = document.getElementById("models");
+
+      const details = document.querySelector('.agreementDetails');
+
+
+      function setOpen(next) {
+        body.classList.toggle("open", next);
+        models.setAttribute("aria-hidden", next ? "false" : "true");
+        if (details) {
+          details.setAttribute('aria-hidden', next ? 'false' : 'true');
+        }
+      }
+
+      function toggle() {
+        setOpen(!body.classList.contains("open"));
+      }
+
+      function onKeyActivate(e, fn) {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          fn();
+        }
+      }
+
+      windBtn.addEventListener("click", toggle);
+      windBtn.addEventListener("keydown", (e) => onKeyActivate(e, toggle));
+      scrim.addEventListener("click", () => setOpen(false));
+
+      // Optional: click any other metric just closes (keeps demo focused)
+      document.querySelectorAll(".metric:not(.wind)").forEach((el) => {
+        el.addEventListener("click", () => setOpen(false));
+        el.addEventListener("keydown", (e) => onKeyActivate(e, () => setOpen(false)));
+      });
+
+      // Start closed
+      setOpen(false);
+    })();
+  </script>
+</body>
+
+</html>
