@@ -53,6 +53,8 @@ interface DualRingGaugeProps {
     isUnavailable?: boolean;
     /** Additional class names */
     className?: string;
+    /** Whether evidence panel is open */
+    evidenceOpen?: boolean;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -228,6 +230,7 @@ export function DualRingGauge({
     modelDetailsLabel = 'Show individual model forecasts',
     isUnavailable = false,
     className,
+    evidenceOpen = false,
 }: DualRingGaugeProps) {
     // Overall agreement
     const safeScore = Number.isFinite(score) ? Math.round(score) : 0;
@@ -266,6 +269,20 @@ export function DualRingGauge({
         </button>
     ) : null;
 
+    const agreementCardClassName = cn(
+        "relative rounded-xl py-3 px-4",
+        "bg-white/[0.03] border border-white/[0.06]",
+        "backdrop-blur-sm",
+        "shadow-[0_2px_12px_-4px_oklch(0_0_0/25%),inset_0_1px_0_oklch(1_0_0/3%)]",
+        "transition-[transform,box-shadow,background-color,border-color] duration-200",
+        "ease-[cubic-bezier(.2,.8,.2,1)] motion-reduce:transition-none",
+        evidenceOpen && [
+            "bg-white/[0.04] border-white/[0.12]",
+            "-translate-y-0.5",
+            "shadow-[0_12px_32px_-18px_oklch(0_0_0/60%),inset_0_1px_0_oklch(1_0_0/4%)]"
+        ]
+    );
+
     return (
         <div className={cn('flex flex-col items-center', className)}>
             {/* Hero Forecast Display */}
@@ -281,12 +298,7 @@ export function DualRingGauge({
             )}
 
             {/* Agreement Containment Card — Groups aggregate score with component gauges */}
-            <div className={cn(
-                "relative rounded-xl py-3 px-4",
-                "bg-white/[0.03] border border-white/[0.06]",
-                "backdrop-blur-sm",
-                "shadow-[0_2px_12px_-4px_oklch(0_0_0/25%),inset_0_1px_0_oklch(1_0_0/3%)]"
-            )}>
+            <div className={agreementCardClassName} data-state={evidenceOpen ? 'open' : 'closed'}>
                 {/* Aggregate Agreement Header (Tappable) */}
                 <button
                     className={cn(

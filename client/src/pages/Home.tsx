@@ -102,6 +102,7 @@ export default function Home() {
     if (!carouselApi) return;
 
     const onSelect = () => {
+      if (!isDrawerOpen) return;
       const index = carouselApi.selectedScrollSnap();
       const tab = DRAWER_TABS[index];
       if (tab && tab.key !== activeDrawerTab) {
@@ -113,7 +114,7 @@ export default function Home() {
     return () => {
       carouselApi.off('select', onSelect);
     };
-  }, [carouselApi, activeDrawerTab]);
+  }, [carouselApi, activeDrawerTab, isDrawerOpen]);
 
   // Scroll carousel when tab state changes externally (gauge tap or tab click)
   useEffect(() => {
@@ -401,6 +402,7 @@ export default function Home() {
   const hasOkModels = okForecasts.length > 0;
   const showGraphs = hasOkModels; // Forecast-dependent sections rely on this
   const showHeroModels = hasOkModels;
+  const isDesktopEvidence = showHeroModels && !isHeroMobile;
 
   // Empty State Logic
   // Gating order: Loading -> Error -> No Useable Models -> Content
@@ -707,7 +709,11 @@ export default function Home() {
                                   <motion.div
                                     layoutId="mobile-tab-indicator"
                                     className="absolute inset-0 bg-white/10 rounded-md shadow-sm"
-                                    transition={{ type: 'spring', stiffness: 400, damping: 30 }}
+                                    transition={{
+                                      type: 'tween',
+                                      duration: 0.22,
+                                      ease: [0.2, 0.8, 0.2, 1]
+                                    }}
                                   />
                                 )}
                                 <span className={`relative z-10 ${isActive ? 'text-foreground' : 'text-foreground/50 hover:text-foreground/80'}`}>
@@ -732,6 +738,7 @@ export default function Home() {
                                     forecasts={forecasts}
                                     modelNames={heroModelNames}
                                     timezone={location?.timezone}
+                                    evidenceOpen={isDrawerOpen}
                                   />
                                 ) : (
                                   <CategoryDetailPanel
@@ -739,6 +746,7 @@ export default function Home() {
                                     forecasts={forecasts}
                                     modelNames={heroModelNames}
                                     timezone={location?.timezone}
+                                    evidenceOpen={isDrawerOpen}
                                   />
                                 )}
                               </CarouselItem>
@@ -768,88 +776,104 @@ export default function Home() {
                       modelDetailsControlsId="desktop-carousel-panel"
                       modelDetailsLabel="Show individual model forecasts"
                       activeCategoryKey={activeCategory}
+                      evidenceOpen={isDrawerOpen}
                     />
                   </div>
                 </div>
 
-                {showHeroModels && activeDrawerTab && !isHeroMobile && (
-                  <motion.div
+                {isDesktopEvidence && (
+                  <div
                     id="desktop-carousel-panel"
                     role="region"
                     aria-label="Model details panel"
-                    initial={{ opacity: 0, y: 12 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: -8 }}
-                    className="pt-4"
+                    aria-hidden={!isDrawerOpen}
+                    inert={!isDrawerOpen}
+                    className={[
+                      "grid",
+                      "transition-[grid-template-rows,opacity,transform]",
+                      "duration-[320ms] ease-[cubic-bezier(.2,.8,.2,1)]",
+                      "motion-reduce:transition-none motion-reduce:transform-none",
+                      isDrawerOpen
+                        ? "grid-rows-[1fr] opacity-100 translate-y-0"
+                        : "grid-rows-[0fr] opacity-0 -translate-y-2 pointer-events-none"
+                    ].join(" ")}
                   >
-                    {/* Desktop Tab Bar with sliding pill */}
-                    <div className="mb-4 p-1 rounded-lg bg-white/[0.04] flex items-center">
-                      <div className="flex-1 grid grid-cols-5 gap-1">
-                        {DRAWER_TABS.map((tab) => {
-                          const Icon = tab.icon;
-                          const isActive = activeDrawerTab === tab.key;
-                          return (
-                            <button
-                              key={tab.key}
-                              type="button"
-                              onClick={() => setActiveDrawerTab(tab.key)}
-                              className="relative flex items-center justify-center gap-1.5 py-2 rounded-md text-xs font-medium transition-colors duration-200"
-                              aria-pressed={isActive}
-                            >
-                              {isActive && (
-                                <motion.div
-                                  layoutId="desktop-tab-indicator"
-                                  className="absolute inset-0 bg-white/10 rounded-md shadow-sm"
-                                  transition={{ type: 'spring', stiffness: 400, damping: 30 }}
-                                />
-                              )}
-                              <span className={`relative z-10 flex items-center gap-1.5 ${isActive ? 'text-foreground' : 'text-foreground/60 hover:text-foreground'}`}>
-                                {Icon && <Icon className="h-3.5 w-3.5" />}
-                                <span>{tab.label}</span>
-                              </span>
-                            </button>
-                          );
-                        })}
+                    <div className="min-h-0 overflow-hidden pt-4">
+                      {/* Desktop Tab Bar with sliding pill */}
+                      <div className="mb-4 p-1 rounded-lg bg-white/[0.04] flex items-center">
+                        <div className="flex-1 grid grid-cols-5 gap-1">
+                          {DRAWER_TABS.map((tab) => {
+                            const Icon = tab.icon;
+                            const isActive = activeDrawerTab === tab.key;
+                            return (
+                              <button
+                                key={tab.key}
+                                type="button"
+                                onClick={() => setActiveDrawerTab(tab.key)}
+                                className="relative flex items-center justify-center gap-1.5 py-2 rounded-md text-xs font-medium transition-colors duration-200"
+                                aria-pressed={isActive}
+                              >
+                                {isActive && (
+                                  <motion.div
+                                    layoutId="desktop-tab-indicator"
+                                    className="absolute inset-0 bg-white/10 rounded-md shadow-sm"
+                                    transition={{
+                                      type: 'tween',
+                                      duration: 0.22,
+                                      ease: [0.2, 0.8, 0.2, 1]
+                                    }}
+                                  />
+                                )}
+                                <span className={`relative z-10 flex items-center gap-1.5 ${isActive ? 'text-foreground' : 'text-foreground/60 hover:text-foreground'}`}>
+                                  {Icon && <Icon className="h-3.5 w-3.5" />}
+                                  <span>{tab.label}</span>
+                                </span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setActiveDrawerTab(null)}
+                          className="ml-3 px-2 py-1 text-[10px] text-foreground/50 hover:text-foreground/80 transition-colors"
+                        >
+                          ✕
+                        </button>
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => setActiveDrawerTab(null)}
-                        className="ml-3 px-2 py-1 text-[10px] text-foreground/50 hover:text-foreground/80 transition-colors"
-                      >
-                        ✕
-                      </button>
-                    </div>
 
-                    {/* Swipeable Carousel - Desktop */}
-                    <div className="w-full  -m-4 p-4">
-                      <Carousel
-                        setApi={setCarouselApi}
-                        opts={carouselOptions}
-                        className="w-full"
-                      >
-                        <CarouselContent className="ml-0">
-                          {DRAWER_TABS.map((tab) => (
-                            <CarouselItem key={tab.key} className="pl-6 basis-full">
-                              {tab.key === 'overall' ? (
-                                <ModelForecastDetailPanel
-                                  forecasts={forecasts}
-                                  modelNames={heroModelNames}
-                                  timezone={location?.timezone}
-                                />
-                              ) : (
-                                <CategoryDetailPanel
-                                  category={tab.key as CategoryDetailKey}
-                                  forecasts={forecasts}
-                                  modelNames={heroModelNames}
-                                  timezone={location?.timezone}
-                                />
-                              )}
-                            </CarouselItem>
-                          ))}
-                        </CarouselContent>
-                      </Carousel>
+                      {/* Swipeable Carousel - Desktop */}
+                      <div className="w-full  -m-4 p-4">
+                        <Carousel
+                          setApi={setCarouselApi}
+                          opts={carouselOptions}
+                          className="w-full"
+                        >
+                          <CarouselContent className="ml-0">
+                            {DRAWER_TABS.map((tab) => (
+                              <CarouselItem key={tab.key} className="pl-6 basis-full">
+                                {tab.key === 'overall' ? (
+                                  <ModelForecastDetailPanel
+                                    forecasts={forecasts}
+                                    modelNames={heroModelNames}
+                                    timezone={location?.timezone}
+                                    evidenceOpen={isDrawerOpen}
+                                  />
+                                ) : (
+                                  <CategoryDetailPanel
+                                    category={tab.key as CategoryDetailKey}
+                                    forecasts={forecasts}
+                                    modelNames={heroModelNames}
+                                    timezone={location?.timezone}
+                                    evidenceOpen={isDrawerOpen}
+                                  />
+                                )}
+                              </CarouselItem>
+                            ))}
+                          </CarouselContent>
+                        </Carousel>
+                      </div>
                     </div>
-                  </motion.div>
+                  </div>
                 )}
 
                 {/* Model status and metadata */}

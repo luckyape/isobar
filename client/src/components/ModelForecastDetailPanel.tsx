@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import { useReducedMotion } from 'framer-motion';
 import type { ModelForecast } from '@/lib/weatherApi';
 import { WEATHER_CODES } from '@/lib/weatherApi';
 import { findCurrentHourIndex } from '@/lib/timeUtils';
@@ -27,13 +28,16 @@ export function ModelForecastDetailPanel({
   forecasts,
   modelNames,
   timezone,
-  className
+  className,
+  evidenceOpen = false
 }: {
   forecasts: ModelForecast[];
   modelNames?: string[];
   timezone?: string;
   className?: string;
+  evidenceOpen?: boolean;
 }) {
+  const reduceMotion = useReducedMotion();
   const modelOrder = useMemo<string[]>(() => {
     if (!modelNames?.length) {
       return [...MODEL_ORDER];
@@ -73,8 +77,11 @@ export function ModelForecastDetailPanel({
   }, [forecasts, modelNames, modelOrder, timezone]);
 
   return (
-    <div className={cn('grid grid-cols-2 gap-1.5 sm:gap-3 lg:grid-cols-4', className)}>
-      {modelEntries.map((entry) => {
+    <div
+      className={cn('grid grid-cols-2 gap-1.5 sm:gap-3 lg:grid-cols-4', className)}
+      data-state={evidenceOpen ? 'open' : 'closed'}
+    >
+      {modelEntries.map((entry, index) => {
         const temp = Number.isFinite(entry.hour?.temperature ?? NaN)
           ? (entry.hour?.temperature as number)
           : null;
@@ -88,12 +95,28 @@ export function ModelForecastDetailPanel({
         const cardStyle = tint
           ? { background: `linear-gradient(135deg, ${tint}, var(--background))` }
           : undefined;
+        const delay = reduceMotion || !evidenceOpen ? 0 : 60 + index * 35;
+        const transitionStyle = delay > 0 ? { transitionDelay: `${delay}ms` } : undefined;
+        const resolvedStyle = transitionStyle ? { ...cardStyle, ...transitionStyle } : cardStyle;
+        const motionClassName = reduceMotion
+          ? 'transition-none'
+          : 'transition-[opacity,transform,filter] duration-[170ms] ease-[cubic-bezier(.2,.8,.2,1)]';
+        const stateClassName = evidenceOpen ? 'opacity-100' : 'opacity-0';
+        const transformClassName = reduceMotion
+          ? ''
+          : (evidenceOpen ? 'translate-y-0 blur-0' : '-translate-y-2 blur-[2px]');
 
         return (
           <div
             key={entry.name}
-            className="rounded-lg sm:rounded-xl border border-white/10 bg-subtle p-2.5 sm:p-4 text-foreground/90 min-h-28 sm:min-h-32 flex flex-col"
-            style={cardStyle}
+            className={cn(
+              "rounded-lg sm:rounded-xl border border-white/10 bg-subtle p-2.5 sm:p-4 text-foreground/90 min-h-28 sm:min-h-32 flex flex-col",
+              "will-change-transform",
+              motionClassName,
+              stateClassName,
+              transformClassName
+            )}
+            style={resolvedStyle}
           >
             <div className="flex items-center gap-2 text-[9px] sm:text-[10px] font-semibold uppercase tracking-caps text-foreground/70">
               <span

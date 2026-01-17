@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { useReducedMotion } from 'framer-motion';
 import { ArrowUp, Cloud, Droplets, Thermometer, Wind } from 'lucide-react';
 import type { ModelForecast } from '@/lib/weatherApi';
 import { WEATHER_CODES } from '@/lib/weatherApi';
@@ -60,14 +61,17 @@ export function CategoryDetailPanel({
   forecasts,
   modelNames,
   timezone,
-  className
+  className,
+  evidenceOpen = false
 }: {
   category: CategoryDetailKey;
   forecasts: ModelForecast[];
   modelNames?: string[];
   timezone?: string;
   className?: string;
+  evidenceOpen?: boolean;
 }) {
+  const reduceMotion = useReducedMotion();
   const modelOrder = useMemo<string[]>(() => {
     if (!modelNames?.length) {
       return [...MODEL_ORDER];
@@ -114,8 +118,11 @@ export function CategoryDetailPanel({
 
   return (
     <>
-      <div className={cn('grid grid-cols-2 gap-1.5 sm:gap-3 lg:grid-cols-4', className)}>
-        {modelEntries.map((entry) => {
+      <div
+        className={cn('grid grid-cols-2 gap-1.5 sm:gap-3 lg:grid-cols-4', className)}
+        data-state={evidenceOpen ? 'open' : 'closed'}
+      >
+        {modelEntries.map((entry, index) => {
           const tint = entry.color ? withAlpha(entry.color, 0.12) : undefined;
           const cardStyle = tint
             ? { background: `linear-gradient(135deg, ${tint}, var(--background))` }
@@ -173,12 +180,22 @@ export function CategoryDetailPanel({
           );
           const displayClassName = cn('mt-1.5 sm:mt-3 items-start text-left');
           const canOpen = Boolean(entry.hour);
+          const delay = reduceMotion || !evidenceOpen ? 0 : 60 + index * 35;
+          const transitionStyle = delay > 0 ? { transitionDelay: `${delay}ms` } : undefined;
+          const resolvedStyle = transitionStyle ? { ...cardStyle, ...transitionStyle } : cardStyle;
+          const motionClassName = reduceMotion
+            ? 'transition-none'
+            : 'transition-[opacity,transform,filter] duration-[170ms] ease-[cubic-bezier(.2,.8,.2,1)]';
+          const stateClassName = evidenceOpen ? 'opacity-100' : 'opacity-0';
+          const transformClassName = reduceMotion
+            ? ''
+            : (evidenceOpen ? 'translate-y-0 blur-0' : '-translate-y-2 blur-[2px]');
 
           return (
             <div
               key={entry.name}
-              className={cardClassName}
-              style={cardStyle}
+              className={cn(cardClassName, "will-change-transform", motionClassName, stateClassName, transformClassName)}
+              style={resolvedStyle}
             >
               <button
                 type="button"
