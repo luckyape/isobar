@@ -188,7 +188,9 @@ export async function unpackageManifest(
 
         // Verify matches expected key
         if (expectedPublicKeyHex.toLowerCase() !== manifest.signature.publicKey.toLowerCase()) {
-            throw new Error('Authenticity check failed: signed by unexpected key');
+            throw new Error(
+                `Authenticity check failed: signed by unexpected key (expected ${expectedPublicKeyHex}, got ${manifest.signature.publicKey})`
+            );
         }
 
         const isValid = ed25519.verify(sigBytes, signedBytes, pubKeyBytes);

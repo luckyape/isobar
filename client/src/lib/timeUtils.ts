@@ -11,7 +11,8 @@ export type DateParts = {
 };
 
 const DATE_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
-const DATETIME_RE = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?$/;
+// Accept Open-Meteo-style timestamps ("YYYY-MM-DDTHH:mm") and ISO UTC ("...:ss(.sss)Z").
+const DATETIME_RE = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?(?:\.\d{1,3})?(?:Z)?$/;
 
 function buildDateParts(
   year: number,

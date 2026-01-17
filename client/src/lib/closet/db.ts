@@ -520,7 +520,8 @@ export class ClosetDB {
             STORE_OBS_INDEX,
             STORE_FORECAST_INDEX,
             STORE_PACK_INDEX,
-            STORE_META
+            STORE_META,
+            STORE_INFLIGHT
         ];
 
         for (const storeName of stores) {

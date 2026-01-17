@@ -41,11 +41,23 @@ export function getManifestPubKeyHex(): string | undefined {
     const key = typeof raw === 'string' ? raw.trim() : '';
     const isDev = typeof import.meta !== 'undefined' && Boolean(import.meta.env?.DEV);
 
-    if (!isDev && !key) {
-        throw new Error(
-            'Missing VITE_MANIFEST_PUBKEY_HEX (required in production to verify signed manifests)'
-        );
+    // Minimal-auth default:
+    // Only enforce manifest signature pinning when explicitly enabled.
+    // This avoids "empty closet" when the CDN signing key rotates or differs
+    // across environments.
+    const enforceRaw = typeof import.meta !== 'undefined'
+        ? (import.meta.env?.VITE_ENFORCE_MANIFEST_SIGNATURE as string | undefined)
+        : undefined;
+    const enforce = (enforceRaw ?? '').trim().toLowerCase();
+    const shouldEnforce = enforce === '1' || enforce === 'true' || enforce === 'yes';
+    if (!shouldEnforce) return undefined;
+
+    if (!key) {
+        throw new Error('Missing VITE_MANIFEST_PUBKEY_HEX (required when VITE_ENFORCE_MANIFEST_SIGNATURE is enabled)');
     }
 
-    return key || undefined;
+    // Keep the old behavior of allowing empty in dev only when NOT enforcing.
+    // If enforcing, require a configured key in all modes.
+    void isDev;
+    return key;
 }

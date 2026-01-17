@@ -183,6 +183,24 @@ export class Vault {
     }
 
     /**
+     * Clear all vault stores (for testing).
+     */
+    async clear(): Promise<void> {
+        await this.open();
+        const stores = [STORE_BLOBS, STORE_META];
+
+        for (const storeName of stores) {
+            await new Promise<void>((resolve, reject) => {
+                const tx = this.db!.transaction(storeName, 'readwrite');
+                const store = tx.objectStore(storeName);
+                const request = store.clear();
+                request.onerror = () => reject(request.error);
+                request.onsuccess = () => resolve();
+            });
+        }
+    }
+
+    /**
      * Get all artifacts for a specific date by looking at synced manifests.
      */
     async getArtifactsForDate(date: string, locationScopeId?: string): Promise<Artifact[]> {

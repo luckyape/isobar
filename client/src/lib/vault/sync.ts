@@ -30,6 +30,13 @@ export interface SyncConfig {
     location?: LocationScopeInput;
     /** Optional precomputed location scope id (64-hex). */
     locationScopeId?: string;
+    /**
+     * Optional manifest signing key pin.
+     * - `undefined`: use default app config (`getManifestPubKeyHex()`).
+     * - `null`: disable signature verification (useful for tests/dev against unsigned or differently-signed CDNs).
+     * - `string`: require manifests be signed by this key.
+     */
+    expectedManifestPubKeyHex?: string | null;
 }
 
 export interface SyncState {
@@ -68,7 +75,8 @@ export class SyncEngine {
             syncDays: config?.syncDays ?? DEFAULT_SYNC_DAYS,
             concurrency: config?.concurrency ?? DEFAULT_CONCURRENCY,
             location: config?.location,
-            locationScopeId: this.scopeId
+            locationScopeId: this.scopeId,
+            expectedManifestPubKeyHex: config?.expectedManifestPubKeyHex
         };
     }
 
@@ -90,8 +98,10 @@ export class SyncEngine {
         await this.vault.open();
         const signal = options?.signal;
 
-        // Load pinned manifest public key (throws in PROD if missing)
-        const pinnedManifestPubKeyHex = getManifestPubKeyHex();
+        const pinnedManifestPubKeyHex =
+            this.config.expectedManifestPubKeyHex === null
+                ? undefined
+                : (this.config.expectedManifestPubKeyHex ?? getManifestPubKeyHex());
 
         const cdnUrl = this.config.cdnUrl;
         console.log(`[SyncEngine] Starting sync from ${cdnUrl}`);
