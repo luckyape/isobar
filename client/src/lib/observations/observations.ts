@@ -384,9 +384,82 @@ export async function fetchObservationsForRange(
         distanceKm: distance,
         series,
         trust: {
-            mode: 'unverified', // Defaulting to unverified for now until strict trust plumbing is exposed
+            mode: 'unverified',
             verifiedCount,
             unverifiedCount
         }
     };
+}
+
+/**
+ * Get the single latest observation available in the closet.
+ */
+export async function getLatestObservation(
+    targetLat: number,
+    targetLon: number
+): Promise<ObservationData | null> {
+    const db = getClosetDB();
+    const all = await db.getAllObservationIndexEntries();
+    if (all.length === 0) return null;
+
+    // Find entry with max observedAtBucket (lexicographical sort works for ISO strings)
+    // "2024-01-01T12:00" > "2024-01-01T11:00"
+    const newest = all.reduce((a, b) => (a.observedAtBucket > b.observedAtBucket ? a : b));
+
+    // Get station set to resolve station ID
+    const vault = getVault();
+    let stationId: string | null = null;
+    let stationSetArt: StationSetArtifact | null = null;
+
+    if (newest.stationSetId) {
+        try {
+            stationSetArt = (await vault.getArtifact(newest.stationSetId)) as StationSetArtifact | null;
+            if (stationSetArt && stationSetArt.type === 'station_set') {
+                stationId = selectStationId(stationSetArt, targetLat, targetLon);
+            }
+        } catch {
+            // ignore missing station set
+        }
+    }
+
+    if (!stationId) return null;
+
+    try {
+        const artifacts = await fetchObservationArtifacts([newest.hash]);
+        if (artifacts.length === 0) return null;
+
+        const art = artifacts[0];
+        // Calculate timestamp for this specific bucket
+        const parts = parseOpenMeteoDateTime(art.observedAtBucket);
+        if (!parts) return null;
+        const bucketMs = Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour!, parts.minute!);
+
+        const { series, verifiedCount, unverifiedCount } = await extractObservationSeries(
+            [art],
+            stationId,
+            targetLat,
+            targetLon,
+            [bucketMs]
+        );
+
+        const stationInfo = stationSetArt?.stations.find(s => s.id === stationId);
+        const distance = stationInfo
+            ? getDistanceFromLatLonInKm(targetLat, targetLon, stationInfo.lat, stationInfo.lon)
+            : 0;
+
+        return {
+            stationId,
+            stationName: stationInfo?.name,
+            distanceKm: distance,
+            series,
+            trust: {
+                mode: 'unverified',
+                verifiedCount,
+                unverifiedCount
+            }
+        };
+    } catch (e) {
+        console.warn('Failed to get latest observation', e);
+        return null;
+    }
 }

@@ -23,9 +23,10 @@ import { Braces, Copy, ExternalLink, RefreshCw, Database, Archive, AlertTriangle
 
 import { computeOpsSnapshot, getDefaultClosetPolicy, isTrustedMode, type OpsConfig, type OpsSnapshot } from "@/lib/closet/ops";
 import { getClosetDB, type ForecastIndexEntry, type ObservationIndexEntry } from "@/lib/closet";
-import { ClosetSection, TrustSection, ActivitySection, TimelineSection, type TrustData, type ActivityData, type TimelineData, type TimelineBin } from "@/components/closet";
+import { ClosetSection, TrustSection, ActivitySection, TimelineSection, LastObservationSection, type TrustData, type ActivityData, type TimelineData, type TimelineBin } from "@/components/closet";
 import { useClosetUrlState, toggleSection } from "@/hooks/useClosetUrlState";
 import { subscribeToLocationChanges, getLocationSnapshot } from "@/lib/locationStore";
+import { getLatestObservation, type ObservationData } from "@/lib/observations/observations";
 import { cn } from "@/lib/utils";
 
 // =============================================================================
@@ -59,17 +60,20 @@ type ClosetDashboardSnapshot = {
     newestObservationBucket: string | null;
     newestObservationAgeMs: number | null;
     newestForecastRunTime: string | null;
+    latestObservation: ObservationData | null;
   };
   // New fields for layered depth model
   trust: TrustData;
   activity: ActivityData;
   timeline: TimelineData;
+  lastObservation: string;
   assertions: {
     coverage: string;
     storage: string;
     activity: string;
     trust: string;
     timeline: string;
+    lastObservation: string; // Added to match assertions object structure usage
   };
   raw?: {
     observationIndexEntries: ObservationIndexEntry[];
@@ -377,17 +381,22 @@ function computeTimelineData(
 async function computeClosetDashboardSnapshot(
   config: OpsConfig,
   exportLevel: ExportLevel,
+  primaryLat: number | null,
+  primaryLon: number | null,
   options?: { listLimit?: number }
 ): Promise<ClosetDashboardSnapshot> {
   const closetDB = getClosetDB();
   await closetDB.open();
 
-  const [ops, obsIndexAll, forecastIndexAll, inflight, storageEstimate] = await Promise.all([
+  const [ops, obsIndexAll, forecastIndexAll, inflight, storageEstimate, latestObservation] = await Promise.all([
     computeOpsSnapshot(config),
     closetDB.getAllObservationIndexEntries(),
     closetDB.getAllForecastIndexEntries(),
     closetDB.getAllInflight(),
-    getStorageEstimate()
+    getStorageEstimate(),
+    (primaryLat !== null && primaryLon !== null)
+      ? getLatestObservation(primaryLat, primaryLon)
+      : Promise.resolve(null)
   ]);
 
   const obsIndexCount = obsIndexAll.length;
@@ -436,7 +445,8 @@ async function computeClosetDashboardSnapshot(
     trust: trust.isTrusted ? "Verified and trusted" : "Unverified mode",
     timeline: timeline.bins.length > 0
       ? (timeline.bins.some(b => b.obsCount > 0) ? "Data collected" : "No recent data")
-      : "Empty timeline"
+      : "Empty timeline",
+    lastObservation: latestObservation ? "Fresh data available" : "No recent data"
   };
 
   const snapshot: ClosetDashboardSnapshot = {
@@ -460,11 +470,13 @@ async function computeClosetDashboardSnapshot(
       forecastModels,
       newestObservationBucket,
       newestObservationAgeMs,
-      newestForecastRunTime
+      newestForecastRunTime,
+      latestObservation
     },
     trust,
     activity,
     timeline,
+    lastObservation: assertions.lastObservation,
     assertions
   };
 
@@ -532,14 +544,16 @@ export default function ClosetDashboardPage() {
     setLoading(true);
     setError(null);
     try {
-      const next = await computeClosetDashboardSnapshot(config, exportLevel, { listLimit });
+      const lat = primaryLocation?.latitude ?? null;
+      const lon = primaryLocation?.longitude ?? null;
+      const next = await computeClosetDashboardSnapshot(config, exportLevel, lat, lon, { listLimit });
       setSnapshot(next);
     } catch (err) {
       setError(String(err));
     } finally {
       setLoading(false);
     }
-  }, [config, exportLevel, listLimit]);
+  }, [config, exportLevel, listLimit, primaryLocation?.latitude, primaryLocation?.longitude]);
 
   useEffect(() => {
     refresh();
@@ -595,7 +609,7 @@ export default function ClosetDashboardPage() {
                 </Badge>
               </div>
               <p className="mt-1 text-sm text-muted-foreground">
-                Your local offline data for <span className="font-medium text-foreground">{primaryLocation.name}</span> — what's stored, what's fresh, and what's working for you.
+                Your local offline data for <span className="font-medium text-foreground">{primaryLocation?.name ?? "Unknown Location"}</span> — what's stored, what's fresh, and what's working for you.
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
@@ -778,6 +792,13 @@ export default function ClosetDashboardPage() {
                 data={snapshot.trust}
                 isExpanded={urlState.expandedSections.has("trust")}
                 onExpandChange={handleSectionToggle("trust")}
+              />
+
+              {/* Last Observation Section */}
+              <LastObservationSection
+                data={snapshot.derived.latestObservation}
+                isExpanded={urlState.expandedSections.has("last-observation")}
+                onExpandChange={handleSectionToggle("last-observation")}
               />
 
               {/* Timeline Section */}
