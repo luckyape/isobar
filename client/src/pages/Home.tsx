@@ -773,7 +773,7 @@ export default function Home() {
                   )}
 
                   {/* Forecast Console with Decomposed Gauges */}
-                  <div className="flex flex-col items-center gap-4 lg:items-end">
+                  <div className="flex flex-col items-center gap-4 lg:items-end -mt-6">
                     <DualRingGauge
                       score={heroAgreementScore}
                       size="lg"
