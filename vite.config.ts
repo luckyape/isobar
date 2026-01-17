@@ -7,6 +7,27 @@ import { vitePluginManusRuntime } from "vite-plugin-manus-runtime";
 const plugins = [react(), tailwindcss(), vitePluginManusRuntime()];
 const meteostatProxyKey =
   process.env.METEOSTAT_API_KEY || process.env.RAPIDAPI_KEY;
+const proxy: Record<string, any> = {
+  "/api/eccc/location": {
+    target: "https://weather.gc.ca",
+    changeOrigin: true,
+    secure: true,
+    rewrite: (path) => path.replace(/^\/api\/eccc\/location/, "/en/location/index.html"),
+  },
+};
+
+if (meteostatProxyKey) {
+  proxy["/api/observations"] = {
+    target: "https://meteostat.p.rapidapi.com",
+    changeOrigin: true,
+    secure: true,
+    rewrite: (path) => path.replace(/^\/api\/observations/, "/point/hourly"),
+    headers: {
+      "x-rapidapi-key": meteostatProxyKey,
+      "x-rapidapi-host": "meteostat.p.rapidapi.com",
+    },
+  };
+}
 
 export default defineConfig({
   plugins,
@@ -42,19 +63,6 @@ export default defineConfig({
       strict: true,
       deny: ["**/.*"],
     },
-    proxy: meteostatProxyKey
-      ? {
-        "/api/observations": {
-          target: "https://meteostat.p.rapidapi.com",
-          changeOrigin: true,
-          secure: true,
-          rewrite: (path) => path.replace(/^\/api\/observations/, "/point/hourly"),
-          headers: {
-            "x-rapidapi-key": meteostatProxyKey,
-            "x-rapidapi-host": "meteostat.p.rapidapi.com",
-          },
-        },
-      }
-      : undefined,
+    proxy: Object.keys(proxy).length ? proxy : undefined,
   },
 });

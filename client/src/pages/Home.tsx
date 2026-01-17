@@ -30,6 +30,7 @@ import { ModelForecastDetailPanel } from '@/components/ModelForecastDetailPanel'
 import { DailyForecast, type BreakdownLens } from '@/components/DailyForecast';
 import { GraphsPanel } from '@/components/GraphsPanel';
 import { IndividualModelForecasts } from '@/components/IndividualModelForecasts';
+import { EcccReader } from '@/components/EcccReader';
 import { getLastFetchDiagnostics, type ModelDiagnostic } from '@/lib/weatherApi';
 import { WEATHER_CODES } from '@/lib/weatherApi';
 import { findCurrentHourIndex, formatHourLabel, parseOpenMeteoDateTime } from '@/lib/timeUtils';
@@ -666,6 +667,7 @@ export default function Home() {
                       </Badge>
                     )}
 
+                    <EcccReader location={location} />
                   </div>
 
                   {showHeroModels && isHeroMobile && (
