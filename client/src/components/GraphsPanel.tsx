@@ -30,7 +30,7 @@ import {
   EmptyTitle
 } from '@/components/ui/empty';
 import { HourlyChart } from '@/components/HourlyChart';
-import { normalizeWeatherCode, WEATHER_CODES, WEATHER_MODELS, type ModelForecast, type ObservedHourly } from '@/lib/weatherApi';
+import { fetchObservedHourlyFromApi, normalizeWeatherCode, WEATHER_CODES, WEATHER_MODELS, type ModelForecast, type ObservedHourly } from '@/lib/weatherApi';
 import type { HourlyConsensus } from '@/lib/consensus';
 import {
   findCurrentHourIndex,
@@ -694,8 +694,8 @@ function PrecipitationComparisonGraph({
                         } else if (row.type === 'observed') {
                           isObserved = true;
                           // Strict Rendering Gate
-                          // Only render from Vault AND if bucket is completed
-                          const canRender = observationsStatus === 'vault' && isBucketCompleted(slot.epoch, 60, nowMs);
+                          // Only render if bucket is completed and we have an observed source enabled.
+                          const canRender = observedAvailability.available && isBucketCompleted(slot.epoch, 60, nowMs);
 
                           if (canRender) {
                             const val = observedPrecipByEpoch.get(slot.epoch);
@@ -1086,8 +1086,8 @@ function ConditionsComparisonGraph({
                           if (!observedAvailability.available) {
                             weatherCode = null;
                           } else {
-                            // Strict Rendering Gate via Status & Completion
-                            const canRender = observationsStatus === 'vault' && isBucketCompleted(slot.epoch, 60, nowMs);
+                            // Strict Rendering Gate via Completion
+                            const canRender = isBucketCompleted(slot.epoch, 60, nowMs);
 
                             if (canRender) {
                               const v = observedConditionsByEpoch.get(slot.epoch);
@@ -1464,8 +1464,10 @@ export function GraphsPanel({
   type ObservationsStatus = 'loading' | 'none' | 'vault' | 'error';
   const [observationsStatus, setObservationsStatus] = useState<ObservationsStatus>('loading');
   const [fetchedObservations, setFetchedObservations] = useState<ObservationData | null | undefined>(undefined);
+  const [apiObservations, setApiObservations] = useState<{ hourly: ObservedHourly[]; fetchedAt: Date } | null | undefined>(undefined);
   const [fetchError, setFetchError] = useState<Error | null>(null);
   const observationsCacheRef = useRef<Map<string, ObservationData | null>>(new Map());
+  const apiObservationsCacheRef = useRef<Map<string, { hourly: ObservedHourly[]; fetchedAt: Date } | null>>(new Map());
   const observationsRequestIdRef = useRef(0);
 
   useEffect(() => {
@@ -1474,12 +1476,14 @@ export function GraphsPanel({
     if (!location || !isPrimary) {
       setObservationsStatus('none');
       setFetchedObservations(undefined);
+      setApiObservations(undefined);
       setFetchError(null);
       return;
     }
 
     const cacheKey = `${location.latitude.toFixed(4)},${location.longitude.toFixed(4)}`;
     const hasCached = observationsCacheRef.current.has(cacheKey);
+    const hasCachedApi = apiObservationsCacheRef.current.has(cacheKey);
     if (hasCached) {
       const cached = observationsCacheRef.current.get(cacheKey) ?? null;
       setFetchedObservations(cached);
@@ -1487,6 +1491,12 @@ export function GraphsPanel({
     } else {
       setFetchedObservations(undefined);
       setObservationsStatus('loading');
+    }
+
+    if (hasCachedApi) {
+      setApiObservations(apiObservationsCacheRef.current.get(cacheKey) ?? null);
+    } else {
+      setApiObservations(undefined);
     }
 
     // Determine time range from forecasts or consensus
@@ -1507,16 +1517,20 @@ export function GraphsPanel({
 
         const lat = location!.latitude;
         const lon = location!.longitude;
-        const data = await fetchObservationsForRange(
-          'eccc',
-          startMs,
-          endMs,
-          'consensus-stations-v1',
-          lat,
-          lon
-        );
+        const [data, apiData] = await Promise.all([
+          fetchObservationsForRange(
+            'eccc',
+            startMs,
+            endMs,
+            'consensus-stations-v1',
+            lat,
+            lon
+          ),
+          fetchObservedHourlyFromApi(lat, lon, timezone ?? 'America/Toronto')
+        ]);
         if (mounted && observationsRequestIdRef.current === requestId) {
           observationsCacheRef.current.set(cacheKey, data);
+          apiObservationsCacheRef.current.set(cacheKey, apiData);
           if (data === null) {
             setFetchedObservations(null);
             setObservationsStatus('none');
@@ -1524,6 +1538,7 @@ export function GraphsPanel({
             setFetchedObservations(data);
             setObservationsStatus('vault');
           }
+          setApiObservations(apiData);
         }
       } catch (e) {
         console.error('Failed to fetch observations', e);
@@ -1534,30 +1549,14 @@ export function GraphsPanel({
             setFetchError(e as Error);
             setObservationsStatus('error');
             setFetchedObservations(null);
+            setApiObservations(null);
           }
         }
       }
     }
     load();
     return () => { mounted = false; };
-  }, [location?.latitude, location?.longitude, isPrimary, lastUpdated?.getTime()]);
-
-
-
-  // STRICT series for Observed rendering (truthfulness)
-  // Must NEVER fallback to initialObservations or any other source if fetched is missing/null.
-  // If fetchedObservations is null, this is empty.
-  const observedSeries = useMemo(() => {
-    if (fetchedObservations) {
-      return convertToObservedHourly(fetchedObservations, timezone);
-    }
-    return []; // Strict empty if no sync data
-  }, [fetchedObservations, timezone]);
-
-  // Observed data identity contract:
-  // - Keys are epoch milliseconds (number)
-  // - Maps ONLY contain completed buckets
-  // - Absence means "no data", never inferred or derived
+  }, [location?.latitude, location?.longitude, isPrimary, timezone, lastUpdated?.getTime()]);
 
 
 
@@ -1571,6 +1570,91 @@ export function GraphsPanel({
     }),
     [forecasts, consensus, showConsensus, fallbackForecast, timezone]
   );
+
+  const slotEpochByTimeKey = useMemo(() => {
+    return new Map(windowSlots.map((slot) => [slot.time, slot.epoch]));
+  }, [windowSlots]);
+
+  const mergedObservedSeries = useMemo(() => {
+    const vaultSeries = fetchedObservations ? convertToObservedHourly(fetchedObservations, timezone) : [];
+    const vaultByEpoch = new Map<number, ObservedHourly>();
+    let maxVaultEpoch = -Infinity;
+
+    for (const row of vaultSeries) {
+      const epoch = row.epoch;
+      if (!Number.isFinite(epoch ?? NaN)) continue;
+      vaultByEpoch.set(epoch as number, row);
+      maxVaultEpoch = Math.max(maxVaultEpoch, epoch as number);
+    }
+
+    const apiSeries = (apiObservations?.hourly ?? [])
+      .map((row) => {
+        const epoch = row.epoch ?? slotEpochByTimeKey.get(row.time);
+        return epoch ? { ...row, epoch } : null;
+      })
+      .filter((row): row is ObservedHourly => Boolean(row));
+
+    const isFiniteNumber = (value: unknown): value is number =>
+      typeof value === 'number' && Number.isFinite(value);
+
+    const mergedByEpoch = new Map<number, ObservedHourly>(vaultByEpoch);
+    let apiContributed = false;
+
+    for (const apiRow of apiSeries) {
+      const epoch = apiRow.epoch as number;
+      const existing = mergedByEpoch.get(epoch);
+      if (!existing) {
+        if (epoch > maxVaultEpoch) apiContributed = true;
+        mergedByEpoch.set(epoch, apiRow);
+        continue;
+      }
+
+      const merged: ObservedHourly = { ...existing };
+      const before = JSON.stringify({
+        temperature: merged.temperature,
+        precipitation: merged.precipitation,
+        windSpeed: merged.windSpeed,
+        windDirection: merged.windDirection,
+        windGusts: merged.windGusts
+      });
+
+      if (!isFiniteNumber(merged.temperature) && isFiniteNumber(apiRow.temperature)) merged.temperature = apiRow.temperature;
+      if (!isFiniteNumber(merged.precipitation) && isFiniteNumber(apiRow.precipitation)) merged.precipitation = apiRow.precipitation;
+      if (!isFiniteNumber(merged.windSpeed) && isFiniteNumber(apiRow.windSpeed)) merged.windSpeed = apiRow.windSpeed;
+      if (!isFiniteNumber(merged.windDirection) && isFiniteNumber(apiRow.windDirection)) merged.windDirection = apiRow.windDirection;
+      if (!isFiniteNumber(merged.windGusts) && isFiniteNumber(apiRow.windGusts)) merged.windGusts = apiRow.windGusts;
+
+      mergedByEpoch.set(epoch, merged);
+
+      const after = JSON.stringify({
+        temperature: merged.temperature,
+        precipitation: merged.precipitation,
+        windSpeed: merged.windSpeed,
+        windDirection: merged.windDirection,
+        windGusts: merged.windGusts
+      });
+
+      if (before !== after) apiContributed = true;
+    }
+
+    const merged = Array.from(mergedByEpoch.values()).sort((a, b) => {
+      const ea = a.epoch ?? 0;
+      const eb = b.epoch ?? 0;
+      return ea - eb;
+    });
+
+    const hasVault = vaultSeries.length > 0;
+    const hasApi = apiSeries.length > 0;
+    const source: 'vault' | 'api' | 'mixed' | 'none' =
+      hasVault && apiContributed ? 'mixed'
+        : hasVault ? 'vault'
+          : hasApi ? 'api'
+            : 'none';
+
+    return { merged, source };
+  }, [apiObservations, fetchedObservations, slotEpochByTimeKey, timezone]);
+
+  const observedSeries = mergedObservedSeries.merged;
 
   const timeSlots = useMemo(() => {
     return windowSlots.map((s) => {
@@ -1636,29 +1720,20 @@ export function GraphsPanel({
     // Only allow if graph is enabled (and not disabled by strict isolation instructions)
     if (OBSERVED_ENABLED_GRAPH !== 'all' && OBSERVED_ENABLED_GRAPH !== 'temperature') return new Map<number, number>();
 
-    // Strict Map Build - NO fallback
     const map = new Map<number, number>();
-    if (observationsStatus !== 'vault' || !fetchedObservations?.series) return map;
-
     const nowMs = Date.now();
+    observedSeries.forEach((observation) => {
+      const t = observation.epoch;
+      if (!Number.isFinite(t ?? NaN)) return;
+      if (!isBucketCompleted(t as number, 60, nowMs)) return;
 
-    // Source of Truth: fetchedObservations.series (Bucket Epochs)
-    const { buckets, tempC } = fetchedObservations.series;
-    if (!buckets || !tempC) return map;
-
-    buckets.forEach((bucketMs, i) => {
-      // 1. Must be completed bucket
-      if (!isBucketCompleted(bucketMs, 60, nowMs)) return;
-
-      // 2. Must have valid value
-      const val = tempC[i];
+      const val = observation.temperature;
       if (!Number.isFinite(val ?? NaN)) return;
-
-      map.set(bucketMs, val as number);
+      map.set(t as number, val as number);
     });
 
     return map;
-  }, [fetchedObservations, observationsStatus, lastUpdated]);
+  }, [observedSeries, lastUpdated]);
 
   const observedPrecipByEpoch = useMemo(() => {
     const map = new Map<number, number>();
@@ -1672,7 +1747,8 @@ export function GraphsPanel({
 
     const now = Date.now();
     observedSeries.forEach((observation) => {
-      const t = observation.epoch ?? new Date(observation.time).getTime();
+      const t = observation.epoch;
+      if (!Number.isFinite(t ?? NaN)) return;
       if (!isBucketCompleted(t, 60, now)) return;
 
       const amount = observation.precipitation;
@@ -1691,7 +1767,8 @@ export function GraphsPanel({
     const map = new Map<number, number>();
     const now = Date.now();
     observedSeries.forEach((observation) => {
-      const t = observation.epoch ?? new Date(observation.time).getTime();
+      const t = observation.epoch;
+      if (!Number.isFinite(t ?? NaN)) return;
       if (!isBucketCompleted(t, 60, now)) return;
 
       const code = (observation as ObservedHourly & { weatherCode?: number }).weatherCode;
@@ -1708,7 +1785,8 @@ export function GraphsPanel({
     const map = new Map<number, { direction: number; speed?: number; gust?: number }>();
     const now = Date.now();
     observedSeries.forEach((observation) => {
-      const t = observation.epoch ?? new Date(observation.time).getTime();
+      const t = observation.epoch;
+      if (!Number.isFinite(t ?? NaN)) return;
       if (!isBucketCompleted(t, 60, now)) return;
 
       if (!observation.time || !Number.isFinite(observation.windDirection ?? NaN)) return;
@@ -1743,8 +1821,12 @@ export function GraphsPanel({
       };
     }
 
-    // Fetch error occurred
-    if (fetchError && (fetchedObservations === undefined || fetchedObservations === null)) {
+    // Fetch error occurred (and no API observations to fall back on)
+    if (
+      fetchError &&
+      (fetchedObservations === undefined || fetchedObservations === null) &&
+      !(apiObservations && apiObservations.hourly.length > 0)
+    ) {
       return {
         temperature: { available: false, reason: 'Fetch failed', detail: `Failed to fetch observations: ${fetchError.message}` },
         precipitation: { available: false, reason: 'Fetch failed', detail: `Failed to fetch observations: ${fetchError.message}` },
@@ -1760,7 +1842,7 @@ export function GraphsPanel({
     // We distinguish "Loading" (undefined) from "No Data" (null) if needed, but for "availability" logic:
     // If undefined (Loading), we can say unavailable/loading.
     // If null (No Data), we say No data.
-    if (fetchedObservations === null) {
+    if (fetchedObservations === null && !(apiObservations && apiObservations.hourly.length > 0)) {
       return {
         temperature: { available: false, reason: 'No data', detail: 'No observed data available for this location and time range' },
         precipitation: { available: false, reason: 'No data', detail: 'No observed data available for this location and time range' },
@@ -1769,7 +1851,7 @@ export function GraphsPanel({
       };
     }
 
-    if (fetchedObservations === undefined) {
+    if (fetchedObservations === undefined && apiObservations === undefined) {
       return {
         temperature: { available: false, reason: 'Loading...', detail: 'Fetching observations...' },
         precipitation: { available: false, reason: 'Loading...', detail: 'Fetching observations...' },
@@ -1805,7 +1887,7 @@ export function GraphsPanel({
     }
 
     return status;
-  }, [location, isPrimary, fetchError, fetchedObservations, observedTempByEpoch, observedPrecipByEpoch, observedWindByEpoch, observedConditionsByEpoch]);
+  }, [location, isPrimary, fetchError, fetchedObservations, apiObservations, observedTempByEpoch, observedPrecipByEpoch, observedWindByEpoch, observedConditionsByEpoch]);
 
 
   const title = activeGraph === 'wind' && windMode === 'matrix'
@@ -1827,15 +1909,28 @@ export function GraphsPanel({
       >
         {process.env.NODE_ENV !== 'production' && (
           <div className="flex items-center gap-4 text-[10px] font-mono border-b border-white/10 pb-2 mb-2">
-            <span className={cn(
-              "px-1.5 py-0.5 rounded",
-              observationsStatus === 'vault' ? "bg-emerald-500/20 text-emerald-300" :
-                observationsStatus === 'loading' ? "bg-blue-500/20 text-blue-300" :
-                  observationsStatus === 'error' ? "bg-red-500/20 text-red-300" :
-                    "bg-yellow-500/20 text-yellow-300" // none
-            )}>
-              Observed source: {observationsStatus.toUpperCase()}
-            </span>
+            {(() => {
+              const sourceLabel = mergedObservedSeries.source !== 'none'
+                ? mergedObservedSeries.source.toUpperCase()
+                : observationsStatus.toUpperCase();
+              const sourceTone = mergedObservedSeries.source === 'mixed'
+                ? "bg-fuchsia-500/20 text-fuchsia-200"
+                : mergedObservedSeries.source === 'api'
+                  ? "bg-cyan-500/20 text-cyan-200"
+                  : observationsStatus === 'vault'
+                    ? "bg-emerald-500/20 text-emerald-300"
+                    : observationsStatus === 'loading'
+                      ? "bg-blue-500/20 text-blue-300"
+                      : observationsStatus === 'error'
+                        ? "bg-red-500/20 text-red-300"
+                        : "bg-yellow-500/20 text-yellow-300";
+
+              return (
+                <span className={cn("px-1.5 py-0.5 rounded", sourceTone)}>
+                  Observed source: {sourceLabel}
+                </span>
+              );
+            })()}
             <span className="text-foreground/50">
               loaded buckets: {observedSeries.length}
             </span>

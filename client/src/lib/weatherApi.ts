@@ -675,6 +675,14 @@ export async function fetchObservedHourly(
     return vaultObs;
   }
 
+  return fetchObservedHourlyFromApi(latitude, longitude, timezone);
+}
+
+export async function fetchObservedHourlyFromApi(
+  latitude: number,
+  longitude: number,
+  timezone: string = 'America/Toronto'
+): Promise<ObservedConditions | null> {
   const nowParts = getZonedNowParts(timezone);
   if (!nowParts) return null;
   const nowKey = formatDateTimeKey({ ...nowParts, minute: 0 });

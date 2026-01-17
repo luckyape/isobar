@@ -4,6 +4,14 @@ import { render, screen } from '@testing-library/react';
 import { GraphsPanel } from './GraphsPanel';
 import type { ObservationData } from '@/lib/observations/observations';
 
+vi.mock('@/lib/weatherApi', async () => {
+  const actual = await vi.importActual<any>('@/lib/weatherApi');
+  return {
+    ...actual,
+    fetchObservedHourlyFromApi: vi.fn().mockResolvedValue(null)
+  };
+});
+
 vi.mock('@/hooks/useMediaQuery', () => ({
   useIsMobile: () => false
 }));
@@ -101,4 +109,3 @@ describe('GraphsPanel observations caching across location transitions', () => {
     expect(document.body.textContent || '').not.toMatch(/\bNo data\b/i);
   });
 });
-

@@ -31,7 +31,9 @@ vi.mock('@/lib/observations/vars', () => ({
 
 vi.mock('@/lib/weatherApi', () => ({
     fetchModelForecast: vi.fn().mockResolvedValue(null),
+    fetchObservedHourlyFromApi: vi.fn().mockResolvedValue(null),
     normalizeWeatherCode: (c: any) => c,
+    WEATHER_CODES: {},
     WEATHER_MODELS: []
 }));
 

@@ -2,7 +2,15 @@ import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { GraphsPanel } from './GraphsPanel';
-import { WEATHER_MODELS } from '@/lib/weatherApi';
+import { WEATHER_MODELS, fetchObservedHourlyFromApi } from '@/lib/weatherApi';
+
+vi.mock('@/lib/weatherApi', async () => {
+    const actual = await vi.importActual<any>('@/lib/weatherApi');
+    return {
+        ...actual,
+        fetchObservedHourlyFromApi: vi.fn().mockResolvedValue(null)
+    };
+});
 
 // Mock dependencies
 vi.mock('@/hooks/useMediaQuery', () => ({
@@ -161,5 +169,45 @@ describe('GraphsPanel Temperature Strictness', () => {
 
         // "Observed" header should be MISSING because the map should be empty after filtering
         expect(screen.queryByText('Observed')).toBeNull();
+    });
+
+    it('shows Observed column when Vault is empty but API observations exist', async () => {
+        const nowMs = Date.now();
+        fetchObservationsForRange.mockResolvedValue(null);
+
+        const targetSlot = mockForecasts[0].hourly[0];
+        const timeKey = targetSlot.time;
+
+        (fetchObservedHourlyFromApi as any).mockResolvedValue({
+            hourly: [
+                {
+                    time: timeKey,
+                    epoch: targetSlot.epoch,
+                    temperature: 14.2,
+                    precipitation: 0,
+                    windSpeed: 5,
+                    windDirection: 180,
+                    windGusts: 10
+                }
+            ],
+            fetchedAt: new Date(nowMs)
+        });
+
+        render(
+            <GraphsPanel
+                forecasts={mockForecasts as any}
+                location={{ latitude: 45, longitude: -75, timezone: 'America/Toronto' } as any}
+                timezone="America/Toronto"
+                lastUpdated={new Date(nowMs)}
+            />
+        );
+
+        await screen.findByText(/Observed source: API/i);
+
+        // Switch to Table
+        await switchToTableView();
+
+        expect(screen.getByText('Observed')).toBeTruthy();
+        expect(screen.getByText('14.2 C')).toBeTruthy();
     });
 });

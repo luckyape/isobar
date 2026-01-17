@@ -14,7 +14,9 @@ vi.mock('@/lib/observations/observations', () => ({
 }));
 vi.mock('@/lib/weatherApi', () => ({
     fetchModelForecast: vi.fn().mockResolvedValue(null),
+    fetchObservedHourlyFromApi: vi.fn().mockResolvedValue(null),
     normalizeWeatherCode: (c: any) => c,
+    WEATHER_CODES: {},
     WEATHER_MODELS: []
 }));
 // Mock PrecipPatterns to avoid SVG issues in jsdom if any

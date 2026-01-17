@@ -7,6 +7,14 @@ import { isBucketedAccumulation } from '@/lib/observations/vars';
 import type { ObservationData } from '@/lib/observations/observations';
 import { WEATHER_MODELS, type ModelForecast } from '@/lib/weatherApi';
 
+vi.mock('@/lib/weatherApi', async () => {
+    const actual = await vi.importActual<any>('@/lib/weatherApi');
+    return {
+        ...actual,
+        fetchObservedHourlyFromApi: vi.fn().mockResolvedValue(null)
+    };
+});
+
 // Mock dependencies
 vi.mock('@/lib/observations/observations', () => ({
     fetchObservationsForRange: vi.fn()
