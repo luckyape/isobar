@@ -33,8 +33,8 @@ import {
 import { HourlyChart } from '@/components/HourlyChart';
 import { fetchObservedHourlyFromApi, normalizeWeatherCode, WEATHER_CODES, WEATHER_MODELS, type ModelForecast, type ObservedHourly } from '@/lib/weatherApi';
 import type { HourlyConsensus } from '@/lib/consensus';
+import { getLocationHydrationDebug } from '@/lib/locationStore';
 import {
-  findCurrentHourIndex,
   formatHourLabel,
   formatWeekdayHourLabel,
   parseOpenMeteoDateTime,
@@ -43,6 +43,7 @@ import {
   formatDateTimeKey
 } from '@/lib/timeUtils';
 import {
+  buildHourlySpine,
   buildHourlyForecastMap,
   getPrecipIntensityColor
 } from '@/lib/graphUtils';
@@ -101,13 +102,10 @@ interface GraphsPanelProps {
   visibleLines?: Record<string, boolean>;
   onToggleLine?: (lineName: string) => void;
   location?: { latitude: number; longitude: number };
+  primaryLocation?: { latitude: number; longitude: number } | null;
   lastUpdated?: Date | null;
   isPrimary?: boolean;
-}
-
-interface HourlyWindow {
-  slots: { time: string; epoch: number }[];
-  currentTimeKey: string | null;
+  isHydrated?: boolean;
 }
 
 const GRAPH_TITLES: Record<GraphKey, string> = {
@@ -121,53 +119,6 @@ const POP_THRESHOLD = 20;
 const OBSERVED_TOOLTIP_COLOR = 'oklch(0.85 0.12 60)';
 const TOOLTIP_CONTENT_CLASSNAME =
   'p-0 bg-transparent shadow-none border-none text-foreground [&>svg]:hidden';
-
-function buildHourlyWindow({
-  forecasts,
-  consensus,
-  showConsensus,
-  fallbackForecast,
-  timezone
-}: {
-  forecasts: ModelForecast[];
-  consensus: HourlyConsensus[];
-  showConsensus: boolean;
-  fallbackForecast?: ModelForecast | null;
-  timezone?: string;
-}): HourlyWindow {
-  const baseForecast = fallbackForecast
-    || forecasts.find(forecast => !forecast.error && forecast.hourly.length > 0)
-    || null;
-
-  // Extract items with both time and epoch
-  // Prefer consensus if available as it's the agreed timeline
-  let baseItems: { time: string; epoch: number }[] = [];
-
-  if (showConsensus && consensus.length > 0) {
-    baseItems = consensus.map(h => ({ time: h.time, epoch: h.epoch || 0 }));
-  } else if (baseForecast?.hourly) {
-    baseItems = baseForecast.hourly.map(h => ({ time: h.time, epoch: h.epoch || 0 }));
-  }
-
-  if (baseItems.length === 0) {
-    return { slots: [], currentTimeKey: null };
-  }
-
-  const times = baseItems.map(i => i.time);
-  const currentIndex = findCurrentHourIndex(times, timezone);
-  const currentTimeKey = times[currentIndex] ?? null;
-  const maxWindowHours = 48;
-  const maxPastHours = 24;
-  const pastHours = Math.min(maxPastHours, currentIndex);
-  const futureHours = maxWindowHours - pastHours;
-  const startIndex = Math.max(0, currentIndex - pastHours);
-  const endIndex = Math.min(baseItems.length, currentIndex + futureHours + 1);
-
-  return {
-    slots: baseItems.slice(startIndex, endIndex),
-    currentTimeKey
-  };
-}
 
 function convertToObservedHourly(data: ObservationData, timezone?: string): ObservedHourly[] {
   // Defensive check: ensure data.series and data.series.buckets exist
@@ -291,7 +242,7 @@ function TemperatureTable({
   showConsensus: boolean;
   observedTempByEpoch: Map<number, number>;
 }) {
-  const hasObserved = observedTempByEpoch.size > 0;
+  const hasObserved = timeSlots.some((slot) => observedTempByEpoch.has(slot.epoch));
 
   if (timeSlots.length === 0) {
     return (
@@ -1472,8 +1423,10 @@ export function GraphsPanel({
   visibleLines = {},
   onToggleLine = () => { },
   location,
+  primaryLocation,
   lastUpdated,
-  isPrimary = true
+  isPrimary = true,
+  isHydrated = true
 }: GraphsPanelProps) {
   const [activeGraph, setActiveGraph] = useState<GraphKey>('temperature');
   const [viewMode, setViewMode] = useState<ViewMode>('chart');
@@ -1485,22 +1438,65 @@ export function GraphsPanel({
   const [fetchedObservations, setFetchedObservations] = useState<ObservationData | null | undefined>(undefined);
   const [apiObservations, setApiObservations] = useState<{ hourly: ObservedHourly[]; fetchedAt: Date } | null | undefined>(undefined);
   const [fetchError, setFetchError] = useState<Error | null>(null);
+  const [observationsLocationKey, setObservationsLocationKey] = useState<string | null>(null);
+  const [apiObservationsLocationKey, setApiObservationsLocationKey] = useState<string | null>(null);
+  const [apiFetchStarted, setApiFetchStarted] = useState(false);
+  const [apiFetchResolved, setApiFetchResolved] = useState(false);
   const observationsCacheRef = useRef<Map<string, ObservationData | null>>(new Map());
   const apiObservationsCacheRef = useRef<Map<string, { hourly: ObservedHourly[]; fetchedAt: Date } | null>>(new Map());
   const observationsRequestIdRef = useRef(0);
+  const spineLoggedRef = useRef(false);
+
+  const locationKey = location
+    ? `${location.latitude.toFixed(4)},${location.longitude.toFixed(4)}`
+    : null;
+  const primaryLocationKey = primaryLocation
+    ? `${primaryLocation.latitude.toFixed(4)},${primaryLocation.longitude.toFixed(4)}`
+    : null;
+  const nowMs = Date.now();
 
   useEffect(() => {
     // GATING: Only fetch observations for primary location
     // When browsing non-primary, observations are disabled
-    if (!location || !isPrimary) {
+    if (!location) {
       setObservationsStatus('none');
       setFetchedObservations(undefined);
       setApiObservations(undefined);
       setFetchError(null);
+      setObservationsLocationKey(null);
+      setApiObservationsLocationKey(null);
+      setApiFetchStarted(false);
+      setApiFetchResolved(false);
       return;
     }
 
-    const cacheKey = `${location.latitude.toFixed(4)},${location.longitude.toFixed(4)}`;
+    if (!isHydrated) {
+      setObservationsStatus('loading');
+      setFetchedObservations(undefined);
+      setApiObservations(undefined);
+      setFetchError(null);
+      setObservationsLocationKey(null);
+      setApiObservationsLocationKey(null);
+      setApiFetchStarted(false);
+      setApiFetchResolved(false);
+      return;
+    }
+
+    if (!isPrimary) {
+      setObservationsStatus('none');
+      setFetchedObservations(undefined);
+      setApiObservations(undefined);
+      setFetchError(null);
+      setObservationsLocationKey(null);
+      setApiObservationsLocationKey(null);
+      setApiFetchStarted(false);
+      setApiFetchResolved(false);
+      return;
+    }
+
+    const cacheKey = locationKey ?? `${location.latitude.toFixed(4)},${location.longitude.toFixed(4)}`;
+    setObservationsLocationKey(cacheKey);
+    setApiObservationsLocationKey(cacheKey);
     const hasCached = observationsCacheRef.current.has(cacheKey);
     const hasCachedApi = apiObservationsCacheRef.current.has(cacheKey);
     if (hasCached) {
@@ -1517,9 +1513,11 @@ export function GraphsPanel({
     } else {
       setApiObservations(undefined);
     }
+    setApiFetchStarted(false);
+    setApiFetchResolved(false);
 
     // Determine time range from forecasts or consensus
-    // We already compute windowTimes via buildHourlyWindow, but that depends on props.
+    // We already compute the hourly spine via buildHourlySpine, but it depends on props.
     // Let's use a simple heuristic: Now - 24h to Now + 48h to cover the window.
     // Or just align with the "windowTimes" if we could access them.
     // But they are computed inside the component.
@@ -1530,26 +1528,23 @@ export function GraphsPanel({
 
     const requestId = ++observationsRequestIdRef.current;
     let mounted = true;
-    async function load() {
-      try {
-        setFetchError(null);
+    setFetchError(null);
 
-        const lat = location!.latitude;
-        const lon = location!.longitude;
-        const [data, apiData] = await Promise.all([
-          fetchObservationsForRange(
-            'eccc',
-            startMs,
-            endMs,
-            'consensus-stations-v1',
-            lat,
-            lon
-          ),
-          fetchObservedHourlyFromApi(lat, lon, timezone ?? 'America/Toronto')
-        ]);
+    const lat = location!.latitude;
+    const lon = location!.longitude;
+
+    async function loadVault() {
+      try {
+        const data = await fetchObservationsForRange(
+          'eccc',
+          startMs,
+          endMs,
+          'consensus-stations-v1',
+          lat,
+          lon
+        );
         if (mounted && observationsRequestIdRef.current === requestId) {
           observationsCacheRef.current.set(cacheKey, data);
-          apiObservationsCacheRef.current.set(cacheKey, apiData);
           if (data === null) {
             setFetchedObservations(null);
             setObservationsStatus('none');
@@ -1557,7 +1552,6 @@ export function GraphsPanel({
             setFetchedObservations(data);
             setObservationsStatus('vault');
           }
-          setApiObservations(apiData);
         }
       } catch (e) {
         console.error('Failed to fetch observations', e);
@@ -1568,34 +1562,114 @@ export function GraphsPanel({
             setFetchError(e as Error);
             setObservationsStatus('error');
             setFetchedObservations(null);
-            setApiObservations(null);
           }
         }
       }
     }
-    load();
+
+    async function loadApi() {
+      setApiFetchStarted(true);
+      setApiFetchResolved(false);
+      try {
+        const apiData = await fetchObservedHourlyFromApi(lat, lon, timezone ?? 'America/Toronto');
+        if (mounted && observationsRequestIdRef.current === requestId) {
+          apiObservationsCacheRef.current.set(cacheKey, apiData);
+          setApiObservations(apiData);
+          setApiFetchResolved(true);
+        }
+      } catch (e) {
+        console.error('Failed to fetch API observations', e);
+        if (mounted && observationsRequestIdRef.current === requestId) {
+          if (!hasCachedApi) {
+            setApiObservations(null);
+          }
+          setApiFetchResolved(true);
+        }
+      }
+    }
+
+    loadVault();
+    loadApi();
     return () => { mounted = false; };
-  }, [location?.latitude, location?.longitude, isPrimary, timezone, lastUpdated?.getTime()]);
+  }, [locationKey, isPrimary, isHydrated, timezone, lastUpdated?.getTime()]);
 
 
 
-  const { slots: windowSlots, currentTimeKey } = useMemo(
-    () => buildHourlyWindow({
+  const hourlySpine = useMemo(
+    () => buildHourlySpine({
       forecasts,
       consensus,
       showConsensus,
       fallbackForecast,
-      timezone
+      timezone,
+      nowMs
     }),
-    [forecasts, consensus, showConsensus, fallbackForecast, timezone]
+    [forecasts, consensus, showConsensus, fallbackForecast, timezone, nowMs]
   );
+
+  const windowSlots = useMemo(() => {
+    const length = Math.min(hourlySpine.slotEpochs.length, hourlySpine.slotTimeKeys.length);
+    return Array.from({ length }, (_, i) => ({
+      time: hourlySpine.slotTimeKeys[i],
+      epoch: hourlySpine.slotEpochs[i]
+    }));
+  }, [hourlySpine.slotEpochs, hourlySpine.slotTimeKeys]);
+
+  const currentTimeKey = hourlySpine.currentTimeKey;
 
   const slotEpochByTimeKey = useMemo(() => {
     return new Map(windowSlots.map((slot) => [slot.time, slot.epoch]));
   }, [windowSlots]);
 
+  useEffect(() => {
+    if (process.env.NODE_ENV === 'production') return;
+    if (spineLoggedRef.current) return;
+    if (hourlySpine.slotEpochs.length === 0) return;
+    spineLoggedRef.current = true;
+    const isAligned = hourlySpine.slotEpochs.every((epoch) => epoch % 3600000 === 0);
+    const isStrictlyIncreasing = hourlySpine.slotEpochs.every((epoch, index, list) =>
+      index === 0 ? true : epoch > list[index - 1]
+    );
+    console.info('[Spine][Hourly]', {
+      slotEpochs: hourlySpine.slotEpochs,
+      slotTimeKeys: hourlySpine.slotTimeKeys,
+      currentTimeKey: hourlySpine.currentTimeKey,
+      isAligned,
+      isStrictlyIncreasing
+    });
+  }, [hourlySpine]);
+
+  const shouldUseObservations = Boolean(
+    location
+    && isHydrated
+    && isPrimary
+    && locationKey
+    && observationsLocationKey === locationKey
+  );
+  const shouldUseApiObservations = Boolean(
+    location
+    && isHydrated
+    && isPrimary
+    && locationKey
+    && apiObservationsLocationKey === locationKey
+  );
+
+  const effectiveObservationsStatus: ObservationsStatus = !location
+    ? 'none'
+    : !isHydrated
+      ? 'loading'
+      : !isPrimary
+        ? 'none'
+        : shouldUseObservations
+          ? observationsStatus
+          : 'loading';
+
+  const effectiveFetchedObservations = shouldUseObservations ? fetchedObservations : undefined;
+  const effectiveApiObservations = shouldUseApiObservations ? apiObservations : undefined;
+  const effectiveFetchError = shouldUseObservations ? fetchError : null;
+
   const mergedObservedSeries = useMemo(() => {
-    const vaultSeries = fetchedObservations ? convertToObservedHourly(fetchedObservations, timezone) : [];
+    const vaultSeries = effectiveFetchedObservations ? convertToObservedHourly(effectiveFetchedObservations, timezone) : [];
     const vaultByEpoch = new Map<number, ObservedHourly>();
     let maxVaultEpoch = -Infinity;
 
@@ -1608,7 +1682,7 @@ export function GraphsPanel({
 
     type ObservedHourlyWithEpoch = ObservedHourly & { epoch: number };
 
-    const apiSeries = (apiObservations?.hourly ?? [])
+    const apiSeries = (effectiveApiObservations?.hourly ?? [])
       .map((row): ObservedHourlyWithEpoch | null => {
         const epoch = row.epoch ?? slotEpochByTimeKey.get(row.time);
         return Number.isFinite(epoch ?? NaN) ? { ...row, epoch: epoch as number } : null;
@@ -1673,7 +1747,7 @@ export function GraphsPanel({
             : 'none';
 
     return { merged, source };
-  }, [apiObservations, fetchedObservations, slotEpochByTimeKey, timezone]);
+  }, [effectiveApiObservations, effectiveFetchedObservations, slotEpochByTimeKey, timezone]);
 
   const observedSeries = mergedObservedSeries.merged;
 
@@ -1742,10 +1816,11 @@ export function GraphsPanel({
     if (OBSERVED_ENABLED_GRAPH !== 'all' && OBSERVED_ENABLED_GRAPH !== 'temperature') return new Map<number, number>();
 
     const map = new Map<number, number>();
-    const nowMs = Date.now();
+    const windowEpochs = new Set(windowSlots.map((slot) => slot.epoch));
     observedSeries.forEach((observation) => {
       const t = observation.epoch;
       if (!Number.isFinite(t ?? NaN)) return;
+      if (!windowEpochs.has(t as number)) return;
       if (!isBucketCompleted(t as number, 60, nowMs)) return;
 
       const val = observation.temperature;
@@ -1754,7 +1829,101 @@ export function GraphsPanel({
     });
 
     return map;
-  }, [observedSeries, lastUpdated]);
+  }, [observedSeries, lastUpdated, windowSlots, nowMs]);
+
+  const observedDebug = useMemo(() => {
+    const skipReason = !location
+      ? 'no-location'
+      : !isHydrated
+        ? 'not-hydrated'
+        : !isPrimary
+          ? 'not-primary'
+          : null;
+    const hydrationDebug = getLocationHydrationDebug();
+    const apiRowsRaw = apiObservations?.hourly?.length ?? 0;
+    const apiRowsScoped = effectiveApiObservations?.hourly?.length ?? 0;
+    const vaultRowsRaw = fetchedObservations?.series?.buckets?.length ?? 0;
+    const vaultRowsScoped = effectiveFetchedObservations?.series?.buckets?.length ?? 0;
+    const mergedRows = mergedObservedSeries.merged.length;
+    const mappedEpochs = (effectiveApiObservations?.hourly ?? [])
+      .map((row) => row.epoch ?? slotEpochByTimeKey.get(row.time))
+      .filter((epoch): epoch is number => Number.isFinite(epoch ?? NaN));
+    const apiMappedEpochCount = mappedEpochs.length;
+    const eligibleCount = observedTempByEpoch.size;
+    const observedTempByEpochSize = observedTempByEpoch.size;
+    const observedEnabled = visibleLines['Observed'] !== false;
+    const observedVisible = eligibleCount > 0 && observedEnabled;
+    const slotEpochs = windowSlots.map((slot) => slot.epoch);
+    const firstSlotEpoch = slotEpochs.length > 0 ? slotEpochs[0] : null;
+    const lastSlotEpoch = slotEpochs.length > 0 ? slotEpochs[slotEpochs.length - 1] : null;
+    const obsEpochs = Array.from(observedTempByEpoch.keys());
+    const minObsEpoch = obsEpochs.length > 0 ? Math.min(...obsEpochs) : null;
+    const maxObsEpoch = obsEpochs.length > 0 ? Math.max(...obsEpochs) : null;
+    return {
+      locationKey,
+      primaryLocationKey,
+      observationsLocationKey,
+      apiObservationsLocationKey,
+      isHydrated,
+      isPrimary,
+      skipReason,
+      hydrationOk: hydrationDebug.ok,
+      hydrationReason: hydrationDebug.reason,
+      storagePrimaryRaw: hydrationDebug.storagePrimaryRaw,
+      storagePrimaryParsed: hydrationDebug.storagePrimaryParsed,
+      storageKeyPresent: hydrationDebug.storageKeyPresent,
+      storageEverSet: hydrationDebug.storageEverSet,
+      hydratedPrimaryLocationKey: hydrationDebug.primaryLocationKey,
+      observationsStatus: effectiveObservationsStatus,
+      apiFetchStarted,
+      apiFetchResolved,
+      apiRowsRaw,
+      apiRowsScoped,
+      vaultRowsRaw,
+      vaultRowsScoped,
+      apiMappedEpochCount,
+      eligibleCount,
+      observedTempByEpochSize,
+      mergedRows,
+      mergedSource: mergedObservedSeries.source,
+      firstSlotEpoch,
+      lastSlotEpoch,
+      minObsEpoch,
+      maxObsEpoch,
+      observedVisible,
+      observedEnabled,
+      visibleLinesObserved: visibleLines['Observed'],
+      nowMs
+    };
+  }, [
+    apiFetchResolved,
+    apiFetchStarted,
+    apiObservations,
+    apiObservationsLocationKey,
+    effectiveApiObservations,
+    effectiveFetchedObservations,
+    effectiveObservationsStatus,
+    fetchedObservations,
+    isHydrated,
+    isPrimary,
+    location,
+    locationKey,
+    mergedObservedSeries,
+    observationsLocationKey,
+    observedTempByEpoch,
+    nowMs,
+    primaryLocationKey,
+    slotEpochByTimeKey,
+    visibleLines,
+    windowSlots
+  ]);
+
+  useEffect(() => {
+    if (process.env.NODE_ENV === 'production') return;
+    if (typeof window === 'undefined') return;
+    (window as any).__OBS_PROBE__ = observedDebug;
+    console.info('[Observed][Debug]', observedDebug);
+  }, [observedDebug]);
 
   const observedPrecipByEpoch = useMemo(() => {
     const map = new Map<number, number>();
@@ -1766,11 +1935,10 @@ export function GraphsPanel({
     // Ensure 'all' allows precip, or explicit 'precipitation'.
     if (OBSERVED_ENABLED_GRAPH !== 'all' && OBSERVED_ENABLED_GRAPH !== 'precipitation') return map;
 
-    const now = Date.now();
     observedSeries.forEach((observation) => {
       const epoch = observation.epoch;
       if (typeof epoch !== 'number' || !Number.isFinite(epoch)) return;
-      if (!isBucketCompleted(epoch, 60, now)) return;
+      if (!isBucketCompleted(epoch, 60, nowMs)) return;
 
       const amount = observation.precipitation;
       if (!observation.time || !Number.isFinite(amount ?? NaN)) return;
@@ -1783,16 +1951,15 @@ export function GraphsPanel({
       keys: Array.from(map.keys()).slice(0, 3)
     });
     return map;
-  }, [observedSeries, lastUpdated]);
+  }, [observedSeries, lastUpdated, nowMs]);
 
   const observedConditionsByEpoch = useMemo(() => {
     if (OBSERVED_ENABLED_GRAPH !== 'all' && OBSERVED_ENABLED_GRAPH !== 'conditions') return new Map<number, number>();
     const map = new Map<number, number>();
-    const now = Date.now();
     observedSeries.forEach((observation) => {
       const epoch = observation.epoch;
       if (typeof epoch !== 'number' || !Number.isFinite(epoch)) return;
-      if (!isBucketCompleted(epoch, 60, now)) return;
+      if (!isBucketCompleted(epoch, 60, nowMs)) return;
 
       const code = (observation as ObservedHourly & { weatherCode?: number }).weatherCode;
       if (!observation.time || !Number.isFinite(code ?? NaN)) return;
@@ -1801,16 +1968,15 @@ export function GraphsPanel({
       map.set(epoch, normalized);
     });
     return map;
-  }, [observedSeries, lastUpdated]);
+  }, [observedSeries, lastUpdated, nowMs]);
 
   const observedWindByEpoch = useMemo(() => {
     if (OBSERVED_ENABLED_GRAPH !== 'all' && OBSERVED_ENABLED_GRAPH !== 'wind') return new Map<number, { direction: number; speed?: number; gust?: number }>();
     const map = new Map<number, { direction: number; speed?: number; gust?: number }>();
-    const now = Date.now();
     observedSeries.forEach((observation) => {
       const epoch = observation.epoch;
       if (typeof epoch !== 'number' || !Number.isFinite(epoch)) return;
-      if (!isBucketCompleted(epoch, 60, now)) return;
+      if (!isBucketCompleted(epoch, 60, nowMs)) return;
 
       if (!observation.time || !Number.isFinite(observation.windDirection ?? NaN)) return;
       map.set(epoch, {
@@ -1820,7 +1986,7 @@ export function GraphsPanel({
       });
     });
     return map;
-  }, [observedSeries, lastUpdated]);
+  }, [observedSeries, lastUpdated, nowMs]);
 
   // Observed availability with graph-specific reasoning
   const observedAvailability = useMemo(() => {
@@ -1831,6 +1997,16 @@ export function GraphsPanel({
         precipitation: { available: false, reason: 'Location required', detail: 'Location required to fetch station data' },
         wind: { available: false, reason: 'Location required', detail: 'Location required to fetch station data' },
         conditions: { available: false, reason: 'Location required', detail: 'Location required to fetch station data' }
+      };
+    }
+
+    // Wait for hydration before making primary-only decisions.
+    if (!isHydrated) {
+      return {
+        temperature: { available: false, reason: 'Loading...', detail: 'Waiting for primary location' },
+        precipitation: { available: false, reason: 'Loading...', detail: 'Waiting for primary location' },
+        wind: { available: false, reason: 'Loading...', detail: 'Waiting for primary location' },
+        conditions: { available: false, reason: 'Loading...', detail: 'Waiting for primary location' }
       };
     }
 
@@ -1845,16 +2021,18 @@ export function GraphsPanel({
     }
 
     // Fetch error occurred (and no API observations to fall back on)
+    const hasApiObserved = Boolean(effectiveApiObservations && effectiveApiObservations.hourly.length > 0);
+
     if (
-      fetchError &&
-      (fetchedObservations === undefined || fetchedObservations === null) &&
-      !(apiObservations && apiObservations.hourly.length > 0)
+      effectiveFetchError &&
+      (effectiveFetchedObservations === undefined || effectiveFetchedObservations === null) &&
+      !hasApiObserved
     ) {
       return {
-        temperature: { available: false, reason: 'Fetch failed', detail: `Failed to fetch observations: ${fetchError.message}` },
-        precipitation: { available: false, reason: 'Fetch failed', detail: `Failed to fetch observations: ${fetchError.message}` },
-        wind: { available: false, reason: 'Fetch failed', detail: `Failed to fetch observations: ${fetchError.message}` },
-        conditions: { available: false, reason: 'Fetch failed', detail: `Failed to fetch observations: ${fetchError.message}` }
+        temperature: { available: false, reason: 'Fetch failed', detail: `Failed to fetch observations: ${effectiveFetchError.message}` },
+        precipitation: { available: false, reason: 'Fetch failed', detail: `Failed to fetch observations: ${effectiveFetchError.message}` },
+        wind: { available: false, reason: 'Fetch failed', detail: `Failed to fetch observations: ${effectiveFetchError.message}` },
+        conditions: { available: false, reason: 'Fetch failed', detail: `Failed to fetch observations: ${effectiveFetchError.message}` }
       };
     }
 
@@ -1865,7 +2043,7 @@ export function GraphsPanel({
     // We distinguish "Loading" (undefined) from "No Data" (null) if needed, but for "availability" logic:
     // If undefined (Loading), we can say unavailable/loading.
     // If null (No Data), we say No data.
-    if (fetchedObservations === null && !(apiObservations && apiObservations.hourly.length > 0)) {
+    if (effectiveFetchedObservations === null && !hasApiObserved) {
       return {
         temperature: { available: false, reason: 'No data', detail: 'No observed data available for this location and time range' },
         precipitation: { available: false, reason: 'No data', detail: 'No observed data available for this location and time range' },
@@ -1874,7 +2052,7 @@ export function GraphsPanel({
       };
     }
 
-    if (fetchedObservations === undefined && apiObservations === undefined) {
+    if (effectiveFetchedObservations === undefined && effectiveApiObservations === undefined) {
       return {
         temperature: { available: false, reason: 'Loading...', detail: 'Fetching observations...' },
         precipitation: { available: false, reason: 'Loading...', detail: 'Fetching observations...' },
@@ -1899,7 +2077,7 @@ export function GraphsPanel({
         : { available: false, reason: 'Not synced', detail: 'Conditions data not yet synced for this time range' }
     };
 
-    if (process.env.NODE_ENV !== 'production' && fetchedObservations) {
+    if (process.env.NODE_ENV !== 'production' && effectiveFetchedObservations) {
       console.table({
         temp: Array.from(observedTempByEpoch.entries()).slice(0, 5),
         precip: Array.from(observedPrecipByEpoch.entries()).slice(0, 5),
@@ -1910,7 +2088,7 @@ export function GraphsPanel({
     }
 
     return status;
-  }, [location, isPrimary, fetchError, fetchedObservations, apiObservations, observedTempByEpoch, observedPrecipByEpoch, observedWindByEpoch, observedConditionsByEpoch]);
+  }, [location, isPrimary, effectiveFetchError, effectiveFetchedObservations, effectiveApiObservations, observedTempByEpoch, observedPrecipByEpoch, observedWindByEpoch, observedConditionsByEpoch]);
 
 
   const title = activeGraph === 'wind' && windMode === 'matrix'
@@ -1935,16 +2113,16 @@ export function GraphsPanel({
             {(() => {
               const sourceLabel = mergedObservedSeries.source !== 'none'
                 ? mergedObservedSeries.source.toUpperCase()
-                : observationsStatus.toUpperCase();
+                : effectiveObservationsStatus.toUpperCase();
               const sourceTone = mergedObservedSeries.source === 'mixed'
                 ? "bg-fuchsia-500/20 text-fuchsia-200"
                 : mergedObservedSeries.source === 'api'
                   ? "bg-cyan-500/20 text-cyan-200"
-                  : observationsStatus === 'vault'
+                  : effectiveObservationsStatus === 'vault'
                     ? "bg-emerald-500/20 text-emerald-300"
-                    : observationsStatus === 'loading'
+                    : effectiveObservationsStatus === 'loading'
                       ? "bg-blue-500/20 text-blue-300"
-                      : observationsStatus === 'error'
+                      : effectiveObservationsStatus === 'error'
                         ? "bg-red-500/20 text-red-300"
                         : "bg-yellow-500/20 text-yellow-300";
 
@@ -1962,6 +2140,13 @@ export function GraphsPanel({
                 last: {observedSeries[observedSeries.length - 1].time.slice(5)}
               </span>
             )}
+            <span
+              className="text-foreground/40 max-w-[60ch] truncate"
+              data-testid="observed-debug"
+              title={JSON.stringify(observedDebug)}
+            >
+              obs-debug {JSON.stringify(observedDebug)}
+            </span>
           </div>
         )}
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -2116,8 +2301,8 @@ export function GraphsPanel({
               observedAvailability={observedAvailability.temperature}
               // STRICT PROPS
               observedTempByEpoch={observedTempByEpoch}
-              observationsStatus={observationsStatus}
-              nowMs={Date.now()}
+              observationsStatus={effectiveObservationsStatus}
+              nowMs={nowMs}
             />
           )}
         </TabsContent>
@@ -2139,11 +2324,11 @@ export function GraphsPanel({
               consensusByTime={consensusByTime}
               showConsensus={showConsensus}
               observedPrecipByEpoch={observedPrecipByEpoch}
-              observationsStatus={observationsStatus}
-              nowMs={Date.now()}
+              observationsStatus={effectiveObservationsStatus}
+              nowMs={nowMs}
               nowMarkerTimeKey={precipNowMarkerTimeKey}
               observedCutoffTimeKey={precipObservedCutoffTimeKey}
-              isUnverified={fetchedObservations?.trust?.mode === 'unverified'}
+              isUnverified={effectiveFetchedObservations?.trust?.mode === 'unverified'}
               observedAvailability={observedAvailability.precipitation}
             />
           )}
@@ -2209,11 +2394,11 @@ export function GraphsPanel({
               // I need to see if observedConditionsByEpoch is defined. I saw it passed in props.
               // I'll assume I need to ensure it returns empty.
               observedConditionsByEpoch={observedConditionsByEpoch}
-              observationsStatus={observationsStatus}
-              nowMs={Date.now()}
+              observationsStatus={effectiveObservationsStatus}
+              nowMs={nowMs}
               nowMarkerTimeKey={precipNowMarkerTimeKey}
               observedCutoffTimeKey={currentTimeKey}
-              isUnverified={fetchedObservations?.trust?.mode === 'unverified'}
+              isUnverified={effectiveFetchedObservations?.trust?.mode === 'unverified'}
               observedAvailability={observedAvailability.conditions}
             />
           )}

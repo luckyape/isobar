@@ -359,6 +359,85 @@ export default {
             }
         }
 
+        // Route: /api/eccc/location?coords=<lat,lon> (proxy weather.gc.ca location page for CORS)
+        if (path === '/api/eccc/location') {
+            const coords = url.searchParams.get('coords')?.trim() ?? '';
+            if (!coords) {
+                return addObservabilityHeaders(jsonResponse(
+                    { error: 'MISSING_COORDS' },
+                    { status: 400, headers: { 'Cache-Control': CACHE_ERROR } }
+                ));
+            }
+
+            if (request.method === 'HEAD') {
+                return addObservabilityHeaders(emptyResponse({
+                    status: 200,
+                    headers: {
+                        'Content-Type': 'text/html; charset=utf-8',
+                        'Cache-Control': CACHE_ROOT
+                    }
+                }));
+            }
+
+            try {
+                const upstream = new URL('https://weather.gc.ca/en/location/index.html');
+                upstream.searchParams.set('coords', coords);
+
+                const headers: Record<string, string> = {};
+                const ifNoneMatch = request.headers.get('if-none-match');
+                const ifModifiedSince = request.headers.get('if-modified-since');
+                if (ifNoneMatch) headers['If-None-Match'] = ifNoneMatch;
+                if (ifModifiedSince) headers['If-Modified-Since'] = ifModifiedSince;
+
+                const response = await fetch(upstream.toString(), {
+                    headers,
+                    redirect: 'follow'
+                });
+
+                const contentType = response.headers.get('content-type') ?? 'text/html; charset=utf-8';
+                const etag = response.headers.get('etag');
+                const lastModified = response.headers.get('last-modified');
+
+                if (response.status === 304) {
+                    return addObservabilityHeaders(emptyResponse({
+                        status: 304,
+                        headers: {
+                            ...(etag ? { ETag: etag } : null),
+                            ...(lastModified ? { 'Last-Modified': lastModified } : null),
+                            'Cache-Control': CACHE_ROOT
+                        }
+                    }));
+                }
+
+                if (!response.ok) {
+                    return addObservabilityHeaders(textResponse('Upstream error', {
+                        status: 502,
+                        headers: { 'Cache-Control': CACHE_ERROR }
+                    }));
+                }
+
+                const body = await response.text();
+                return addObservabilityHeaders(new Response(body, {
+                    status: 200,
+                    headers: withHeaders({
+                        'Content-Type': contentType,
+                        ...(etag ? { ETag: etag } : null),
+                        ...(lastModified ? { 'Last-Modified': lastModified } : null),
+                        'Cache-Control': CACHE_ROOT
+                    })
+                }));
+            } catch (error) {
+                console.error('[eccc/location] proxy failed', {
+                    coords,
+                    error: (error as Error)?.message ?? String(error)
+                });
+                return addObservabilityHeaders(jsonResponse(
+                    { error: 'ECCC_PROXY_FAILED' },
+                    { status: 502, headers: { 'Cache-Control': CACHE_ERROR } }
+                ));
+            }
+        }
+
         // Handle preflight
         if (request.method === 'OPTIONS') {
             return addObservabilityHeaders(emptyResponse({ status: 204 }));

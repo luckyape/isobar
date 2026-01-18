@@ -171,6 +171,72 @@ describe('GraphsPanel Temperature Strictness', () => {
         expect(screen.queryByText('Observed')).toBeNull();
     });
 
+    it('does NOT show Observed column when observations are outside the 48h window', async () => {
+        const nowMs = Date.now();
+        const outsideEpoch = new Date(getKey(-100)).getTime();
+
+        fetchObservationsForRange.mockResolvedValue({
+            trust: { mode: 'trusted' },
+            series: {
+                buckets: [outsideEpoch],
+                tempC: [15.5],
+                precipMm: [0],
+                windKph: [null],
+                windGustKph: [null],
+                windDirDeg: [null],
+                conditionCode: [null]
+            }
+        });
+
+        render(
+            <GraphsPanel
+                forecasts={mockForecasts as any}
+                location={{ latitude: 45, longitude: -75 }}
+                timezone="America/Toronto"
+                lastUpdated={new Date(nowMs)}
+            />
+        );
+
+        await screen.findByText(/Observed source: VAULT/i);
+        await switchToTableView();
+
+        expect(screen.queryByText('Observed')).toBeNull();
+        expect(screen.queryByText('15.5 C')).toBeNull();
+    });
+
+    it('does NOT show Observed column when temperature values are invalid', async () => {
+        const nowMs = Date.now();
+        const targetSlot = mockForecasts[0].hourly[0];
+        const t = targetSlot.epoch;
+
+        fetchObservationsForRange.mockResolvedValue({
+            trust: { mode: 'trusted' },
+            series: {
+                buckets: [t],
+                tempC: [null],
+                precipMm: [0],
+                windKph: [null],
+                windGustKph: [null],
+                windDirDeg: [null],
+                conditionCode: [null]
+            }
+        });
+
+        render(
+            <GraphsPanel
+                forecasts={mockForecasts as any}
+                location={{ latitude: 45, longitude: -75 }}
+                timezone="America/Toronto"
+                lastUpdated={new Date(nowMs)}
+            />
+        );
+
+        await screen.findByText(/Observed source: VAULT/i);
+        await switchToTableView();
+
+        expect(screen.queryByText('Observed')).toBeNull();
+    });
+
     it('shows Observed column when Vault is empty but API observations exist', async () => {
         const nowMs = Date.now();
         fetchObservationsForRange.mockResolvedValue(null);

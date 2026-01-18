@@ -72,6 +72,22 @@ export function useWeather() {
     syncProgress: null
   });
 
+  useEffect(() => {
+    setState((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      if (prev.primaryLocation !== locationSnapshot.primaryLocation) {
+        next.primaryLocation = locationSnapshot.primaryLocation;
+        changed = true;
+      }
+      if (prev.isPrimary !== locationSnapshot.isViewingPrimary) {
+        next.isPrimary = locationSnapshot.isViewingPrimary;
+        changed = true;
+      }
+      return changed ? next : prev;
+    });
+  }, [locationSnapshot.primaryLocation, locationSnapshot.isViewingPrimary]);
+
   // Fetch weather data for a location
   const fetchWeather = useCallback(async (
     location: Location,

@@ -33,10 +33,12 @@ import { ModelForecastDetailPanel } from '@/components/ModelForecastDetailPanel'
 import { DailyForecast, type BreakdownLens } from '@/components/DailyForecast';
 import { GraphsPanel } from '@/components/GraphsPanel';
 import { IndividualModelForecasts } from '@/components/IndividualModelForecasts';
+import { EcccReader } from '@/components/EcccReader';
 import { getLastFetchDiagnostics, type ModelDiagnostic } from '@/lib/weatherApi';
 import { WEATHER_CODES } from '@/lib/weatherApi';
 import { findCurrentHourIndex, formatHourLabel, parseOpenMeteoDateTime } from '@/lib/timeUtils';
 import { TemporalAnchor } from '@/components/TemporalAnchor';
+import { isLocationStoreHydrated } from '@/lib/locationStore';
 
 // Unified drawer tab configuration
 const DRAWER_TABS = [
@@ -73,6 +75,7 @@ export default function Home() {
   const [carouselApi, setCarouselApi] = useState<CarouselApi>();
   const [showDiagnostics, setShowDiagnostics] = useState(false);
   const nowSeconds = Date.now() / 1000;
+  const isHydrated = isLocationStoreHydrated();
 
   // 1. Compute Safe Forecast Spine ONCE
   // Use the canonical contract: normalizeModel returns status='ok' for valid models
@@ -693,6 +696,7 @@ export default function Home() {
                       </Badge>
                     )}
 
+                    <EcccReader location={location} />
                   </div>
 
                   {showHeroModels && isHeroMobile && (
@@ -1012,8 +1016,10 @@ export default function Home() {
               visibleLines={visibleLines}
               onToggleLine={toggleLineVisibility}
               location={location ?? undefined}
+              primaryLocation={primaryLocation}
               lastUpdated={lastUpdated}
               isPrimary={isPrimary}
+              isHydrated={isHydrated}
             />
           </motion.section>
 
