@@ -1,6 +1,5 @@
 import React from 'react';
 import { cn } from '@/lib/utils';
-import { ModelEmblem } from '@/components/ModelEmblem';
 
 type MatrixRowType = 'model' | 'consensus' | 'observed';
 
@@ -29,14 +28,13 @@ export function MatrixRowLabel({
       )}
       style={labelTint ? { background: labelTint } : undefined}
     >
-      {type === 'model' ? (
-        <ModelEmblem
-          model={{ name: label, color: color!, countryCode }}
-          className="gap-2 text-foreground"
+      {type === 'model' && color && (
+        <span
+          className="h-2 w-2 triangle-icon"
+          style={{ backgroundColor: color }}
         />
-      ) : (
-        <span>{label}</span>
       )}
+      <span>{label}</span>
       {!available && type === 'observed' && unavailableReason && (
         <span
           className="text-[10px] text-foreground/40"
