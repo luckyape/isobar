@@ -36,6 +36,7 @@ import { IndividualModelForecasts } from '@/components/IndividualModelForecasts'
 import { getLastFetchDiagnostics, type ModelDiagnostic } from '@/lib/weatherApi';
 import { WEATHER_CODES } from '@/lib/weatherApi';
 import { findCurrentHourIndex, formatHourLabel, parseOpenMeteoDateTime } from '@/lib/timeUtils';
+import { TemporalAnchor } from '@/components/TemporalAnchor';
 
 // Unified drawer tab configuration
 const DRAWER_TABS = [
@@ -636,7 +637,19 @@ export default function Home() {
             animate={{ opacity: 1, y: 0 }}
             className="mb-8"
           >
-            <div className="glass-card overflow-hidden p-6 sm:p-8 aurora-glow readable-text">
+            <div className="relative glass-card overflow-hidden p-6 sm:p-8 aurora-glow readable-text">
+              <div className="absolute top-6 right-6 sm:top-8 sm:right-8 z-20">
+                <TemporalAnchor
+                  timestamp={new Date().toISOString()}
+                  timezone={location?.timezone}
+                  designDirection="solar"
+                  mode="live"
+                  solarContext={representativeDaily ? {
+                    sunrise: representativeDaily.sunrise,
+                    sunset: representativeDaily.sunset
+                  } : undefined}
+                />
+              </div>
               <div className="flex flex-col gap-6">
                 <div className="grid gap-6 lg:grid-cols-[1.1fr_1fr] lg:items-start">
                   {/* Location and current weather */}

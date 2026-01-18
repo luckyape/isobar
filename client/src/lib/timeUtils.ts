@@ -213,3 +213,86 @@ export function findCurrentHourIndex(times: string[], timeZone?: string): number
 
   return index >= 0 ? index : 0;
 }
+
+/**
+ * Returns a date object from a string that might be an Open-Meteo string OR an ISO string.
+ * This is useful because the data inputs might vary (e.g. from tests vs real API).
+ */
+export function parseToDate(value: string): Date | null {
+  // Try ISO first (or simple new Date construction)
+  const d = new Date(value);
+  if (!isNaN(d.getTime())) return d;
+
+  // Fallback to manual Open-Meteo parsing for "YYYY-MM-DDTHH:mm" if new Date() fails
+  // (though new Date() usually handles ISO-like strings well in modern JS environments,
+  // strict "YYYY-MM-DDTHH:mm" without Z might be treated as local or UTC depending on browser)
+  const parts = parseOpenMeteoDateTime(value);
+  if (parts) {
+    return new Date(Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour || 0, parts.minute || 0));
+  }
+  return null;
+}
+
+/**
+ * Calculates the "T+..." or "T-..." label for the Temporal Anchor (Direction B).
+ * Returns "Now" if within +/- 5 minutes.
+ */
+export function getTemporalDeltaLabel(target: Date, relativeTo: Date = new Date()): string {
+  const diffMs = target.getTime() - relativeTo.getTime();
+  const diffAbsMs = Math.abs(diffMs);
+  const diffMinutes = diffAbsMs / (1000 * 60);
+
+  // Spec: "If the user is within ±5 minutes of real-time, the system snaps to Live mode."
+  if (diffMinutes <= 5) {
+    return 'Now';
+  }
+
+  const prefix = diffMs > 0 ? 'T+' : 'T-';
+  const diffHours = diffAbsMs / (1000 * 60 * 60);
+  const diffDays = diffHours / 24;
+
+  if (diffDays >= 1) {
+    // Spec examples: "T-3d", "T+1d"
+    // We round to nearest day or floor? Spec says "T-3d".
+    // Usually "T+1d" implies "1 day out".
+    return `${prefix}${Math.round(diffDays)}d`;
+  }
+
+  // Spec examples: "T+12h".
+  // For < 1 day, user hours.
+  // If < 1 hour, maybe use minutes? Spec doesn't strictly say, but "T+4h" is the vibe.
+  // Let's stick to hours if > 1h.
+  if (diffHours >= 1) {
+    return `${prefix}${Math.round(diffHours)}h`;
+  }
+
+  // If between 5 mins and 1 hour, use minutes?
+  // "T+45m" seems appropriate/precise for "Delta-First".
+  return `${prefix}${Math.round(diffMinutes)}m`;
+}
+
+/**
+ * Helper to calculate solar relative info for Direction A.
+ */
+export function getSolarStatus(target: Date, sunrise: Date, sunset: Date) {
+  const t = target.getTime();
+  const sr = sunrise.getTime();
+  const ss = sunset.getTime();
+
+  // Basic phases
+  const isDay = t >= sr && t < ss;
+  const isNight = !isDay;
+
+  // Time mechanics
+  const hoursSinceSunrise = (t - sr) / (1000 * 60 * 60);
+  const hoursUntilSunset = (ss - t) / (1000 * 60 * 60);
+  const hoursUntilSunrise = (sr - t) / (1000 * 60 * 60); // for pre-dawn
+
+  return {
+    isDay,
+    isNight,
+    hoursSinceSunrise,
+    hoursUntilSunset,
+    hoursUntilSunrise
+  };
+}
