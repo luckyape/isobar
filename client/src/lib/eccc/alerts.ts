@@ -1,6 +1,6 @@
 import type { AlertItem, NormalizedAlert } from './types';
 
-type StoredAlert = AlertItem & {
+export type StoredAlert = AlertItem & {
   _canceled?: boolean;
 };
 

@@ -39,6 +39,8 @@ import { WEATHER_CODES } from '@/lib/weatherApi';
 import { findCurrentHourIndex, formatHourLabel, parseOpenMeteoDateTime } from '@/lib/timeUtils';
 import { TemporalAnchor } from '@/components/TemporalAnchor';
 import { isLocationStoreHydrated } from '@/lib/locationStore';
+import { useEcccData } from '@/hooks/useEcccData';
+import { EcccInlineAlertStrip, type AlertViewModel } from '@/components/EcccInlineAlertStrip';
 
 // Unified drawer tab configuration
 const DRAWER_TABS = [
@@ -76,6 +78,23 @@ export default function Home() {
   const [showDiagnostics, setShowDiagnostics] = useState(false);
   const nowSeconds = Date.now() / 1000;
   const isHydrated = isLocationStoreHydrated();
+
+  // ECCC Data Hook (Lifted State)
+  const ecccData = useEcccData(location);
+
+  const alertViewModels: AlertViewModel[] = useMemo(() => {
+    return ecccData.alerts.map(a => ({
+      id: a.id,
+      headline: a.headline || a.event || 'Weather Alert',
+      event: a.event,
+      area: location?.name,
+      severity: (a.severity as any) || 'Unknown',
+      sentAt: a.sent_at,
+      expiresAt: a.expires,
+      summary: a.description || a.instruction,
+      instruction: a.instruction
+    }));
+  }, [ecccData.alerts, location?.name]);
 
   // 1. Compute Safe Forecast Spine ONCE
   // Use the canonical contract: normalizeModel returns status='ok' for valid models
@@ -633,6 +652,17 @@ export default function Home() {
           onRefresh={refresh}
         />
 
+        <EcccInlineAlertStrip
+          alerts={alertViewModels}
+          onViewDetails={(id) => {
+            // Basic jump to reader for now. 
+            // We could implement deep linking later.
+            const reader = document.querySelector('aside[aria-label="ECCC Reader"]');
+            if (reader) reader.scrollIntoView({ behavior: 'smooth' });
+          }}
+          className="mb-6 container"
+        />
+
         <main className="container py-8">
           {/* Hero section with confidence gauge */}
           <motion.section
@@ -696,7 +726,13 @@ export default function Home() {
                       </Badge>
                     )}
 
-                    <EcccReader location={location} />
+                    <EcccReader
+                      location={location}
+                      alerts={ecccData.alerts}
+                      updates={ecccData.updates}
+                      forecast={ecccData.forecast}
+                      loading={ecccData.loading}
+                    />
                   </div>
 
                   {showHeroModels && isHeroMobile && (
