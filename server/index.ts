@@ -66,6 +66,49 @@ async function startServer() {
     }
   });
 
+  app.get("/api/eccc/location", async (req, res) => {
+    const coords = typeof req.query.coords === "string" ? req.query.coords : "";
+    if (!coords) {
+      res.status(400).json({ error: "Missing coords" });
+      return;
+    }
+
+    try {
+      const url = new URL("https://weather.gc.ca/en/location/index.html");
+      url.searchParams.set("coords", coords);
+
+      const headers: Record<string, string> = {};
+      const ifNoneMatch = req.header("if-none-match");
+      const ifModifiedSince = req.header("if-modified-since");
+      if (ifNoneMatch) headers["If-None-Match"] = ifNoneMatch;
+      if (ifModifiedSince) headers["If-Modified-Since"] = ifModifiedSince;
+
+      const response = await fetch(url.toString(), { headers, redirect: "follow" });
+      res.status(response.status);
+
+      const contentType = response.headers.get("content-type");
+      const etag = response.headers.get("etag");
+      const lastModified = response.headers.get("last-modified");
+      const cacheControl = response.headers.get("cache-control");
+
+      if (contentType) res.setHeader("content-type", contentType);
+      if (etag) res.setHeader("etag", etag);
+      if (lastModified) res.setHeader("last-modified", lastModified);
+      if (cacheControl) res.setHeader("cache-control", cacheControl);
+
+      if (response.status === 304) {
+        res.end();
+        return;
+      }
+
+      const body = await response.text();
+      res.send(body);
+    } catch (error) {
+      console.error("ECCC location proxy failed:", error);
+      res.status(502).json({ error: "Failed to fetch ECCC location" });
+    }
+  });
+
   // Handle client-side routing - serve index.html for all routes
   app.get("*", (_req, res) => {
     res.sendFile(path.join(staticPath, "index.html"));

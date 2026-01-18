@@ -4,6 +4,7 @@
  */
 
 const CACHE_NAME = 'weather-consensus-v1';
+const ECCC_CACHE_TTL_MS = 5 * 60 * 1000;
 const STATIC_ASSETS = [
   '/',
   '/manifest.json',
@@ -64,6 +65,38 @@ self.addEventListener('fetch', (event) => {
           // Return cached API response if available
           return caches.match(request);
         })
+    );
+    return;
+  }
+
+  // ECCC proxy - pass through
+  if (url.pathname.startsWith('/api/eccc/location')) {
+    event.respondWith(
+      caches.open(CACHE_NAME).then(async (cache) => {
+        const metaKey = `${request.url}::meta`;
+        const cachedMeta = await cache.match(metaKey);
+        const cachedResponse = await cache.match(request);
+        if (cachedMeta && cachedResponse) {
+          const cachedAt = Number(await cachedMeta.text());
+          if (Number.isFinite(cachedAt) && Date.now() - cachedAt < ECCC_CACHE_TTL_MS) {
+            return cachedResponse;
+          }
+        }
+
+        try {
+          const response = await fetch(request);
+          if (response.status === 304 && cachedResponse) return cachedResponse;
+          if (response.ok) {
+            const clone = response.clone();
+            cache.put(request, clone);
+            cache.put(metaKey, new Response(Date.now().toString()));
+          }
+          return response;
+        } catch {
+          if (cachedResponse) return cachedResponse;
+          throw new Error('ECCC proxy fetch failed');
+        }
+      })
     );
     return;
   }

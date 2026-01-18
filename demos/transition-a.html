@@ -62,7 +62,7 @@
     }
 
     .wrap {
-      width: min(760px, 92vw);
+      width: min(1120px, 94vw);
       padding: 28px 22px 30px;
       border-radius: 28px;
       background: linear-gradient(180deg, rgba(255, 255, 255, .06), rgba(255, 255, 255, .02));
@@ -485,6 +485,278 @@
       flex-wrap: wrap;
     }
 
+    /* ECCC Reader */
+    .contentGrid {
+      display: grid;
+      gap: 22px;
+    }
+
+    .readerCol {
+      display: none;
+    }
+
+    .readerCard {
+      border-radius: var(--radius);
+      background:
+        radial-gradient(900px 500px at 30% 10%, rgba(255, 255, 255, .10), transparent 55%),
+        rgba(10, 18, 28, .75);
+      border: 1px solid rgba(255, 255, 255, .08);
+      padding: 16px 16px 14px;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, .35);
+      display: grid;
+      gap: 12px;
+    }
+
+    .readerHeader {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .readerHeader .title {
+      font-size: 13px;
+      letter-spacing: 2px;
+      font-weight: 720;
+      text-transform: uppercase;
+    }
+
+    .readerHeader .sub {
+      font-size: 12px;
+      color: rgba(238, 243, 255, .65);
+    }
+
+    .readerHeader .meta {
+      font-size: 11px;
+      color: rgba(238, 243, 255, .65);
+      letter-spacing: .4px;
+    }
+
+    .alertsStrip {
+      display: grid;
+      gap: 10px;
+    }
+
+    .alertsLabel {
+      font-size: 11px;
+      letter-spacing: 1.6px;
+      text-transform: uppercase;
+      color: rgba(238, 243, 255, .65);
+    }
+
+    .readerTabs {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 6px;
+      padding: 4px;
+      border-radius: 14px;
+      background: rgba(255, 255, 255, .04);
+      border: 1px solid rgba(255, 255, 255, .06);
+    }
+
+    .readerTab {
+      appearance: none;
+      border: 1px solid transparent;
+      background: transparent;
+      color: rgba(238, 243, 255, .72);
+      font-size: 12px;
+      letter-spacing: 1.2px;
+      font-weight: 650;
+      padding: 7px 8px;
+      border-radius: 10px;
+      transition:
+        background-color var(--dur-fast) var(--ease-in),
+        color var(--dur-fast) var(--ease-in),
+        border-color var(--dur-fast) var(--ease-in);
+    }
+
+    .readerTab[aria-selected="true"] {
+      background: rgba(255, 255, 255, .08);
+      color: var(--text);
+      border-color: rgba(255, 255, 255, .08);
+    }
+
+    .readerTab:focus-visible {
+      outline: none;
+      border-color: rgba(42, 230, 166, .30);
+      box-shadow: 0 0 0 3px rgba(42, 230, 166, .12);
+    }
+
+    .readerPanels {
+      display: grid;
+      gap: 10px;
+    }
+
+    .readerPanel {
+      display: grid;
+      gap: 10px;
+    }
+
+    .readerItem {
+      border-radius: 16px;
+      background: rgba(10, 18, 28, .62);
+      border: 1px solid rgba(255, 255, 255, .08);
+      padding: 12px;
+      display: grid;
+      gap: 8px;
+    }
+
+    .readerItemHeader {
+      display: grid;
+      gap: 4px;
+    }
+
+    .readerItemTitle {
+      margin: 0;
+      font-size: 14px;
+      font-weight: 700;
+      letter-spacing: .2px;
+    }
+
+    .readerMeta {
+      font-size: 11px;
+      color: rgba(238, 243, 255, .65);
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .readerExcerpt {
+      margin: 0;
+      font-size: 13px;
+      line-height: 1.4;
+      color: rgba(238, 243, 255, .75);
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+
+    .readerSummary {
+      border-radius: 12px;
+      background: rgba(255, 255, 255, .04);
+      border: 1px solid rgba(255, 255, 255, .06);
+      padding: 8px 10px;
+    }
+
+    .readerSummaryLabel {
+      display: block;
+      font-size: 10px;
+      letter-spacing: 1.6px;
+      text-transform: uppercase;
+      color: rgba(238, 243, 255, .65);
+      margin-bottom: 4px;
+    }
+
+    .readerSummaryText {
+      margin: 0;
+      font-size: 12px;
+      line-height: 1.4;
+      color: rgba(238, 243, 255, .75);
+    }
+
+    .readerToggle {
+      appearance: none;
+      border: 0;
+      background: transparent;
+      color: rgba(238, 243, 255, .72);
+      font-size: 12px;
+      text-decoration: underline;
+      text-underline-offset: 3px;
+      padding: 0;
+      justify-self: start;
+      transition: color var(--dur-fast) var(--ease-in);
+    }
+
+    .readerToggle:hover {
+      color: var(--text);
+    }
+
+    .readerToggle:focus-visible {
+      outline: none;
+      color: var(--text);
+      box-shadow: 0 0 0 3px rgba(42, 230, 166, .12);
+      border-radius: 6px;
+    }
+
+    .readerOriginal {
+      display: grid;
+      grid-template-rows: 0fr;
+      transition:
+        grid-template-rows var(--dur) var(--ease),
+        opacity var(--dur-fast) var(--ease-in),
+        transform var(--dur) var(--ease);
+      opacity: 0;
+      transform: translateY(-6px);
+      overflow: hidden;
+    }
+
+    .readerOriginalInner {
+      overflow: hidden;
+      border-radius: 12px;
+      background: rgba(255, 255, 255, .04);
+      border: 1px solid rgba(255, 255, 255, .06);
+      padding: 8px 10px;
+      font-size: 12px;
+      line-height: 1.45;
+      color: rgba(238, 243, 255, .75);
+    }
+
+    .readerItem[data-open="true"] .readerOriginal {
+      grid-template-rows: 1fr;
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    .readerFoot {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      font-size: 11px;
+      color: rgba(238, 243, 255, .65);
+    }
+
+    .readerLink {
+      color: rgba(238, 243, 255, .72);
+      text-decoration: underline;
+      text-underline-offset: 3px;
+    }
+
+    .readerLink:hover {
+      color: var(--text);
+    }
+
+    .consensusCol {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    @media (min-width: 980px) {
+      .contentGrid {
+        grid-template-columns: minmax(0, 1.2fr) minmax(0, .9fr);
+        align-items: start;
+      }
+
+      .readerCol {
+        display: block;
+      }
+
+      .consensusCol {
+        align-items: flex-end;
+        text-align: right;
+      }
+
+      .consensusCol .hero {
+        place-items: end;
+        text-align: right;
+      }
+
+      .consensusCol .agreementCard {
+        margin-left: auto;
+      }
+    }
+
     /* small screens */
     @media (max-width: 560px) {
       .place .name {
@@ -527,175 +799,1335 @@
     <div class="top">
       <div class="place">
         <div class="name">
-          Roxville
+          Toronto
           <span class="dots" aria-hidden="true">
             <span class="dot"></span><span class="dot"></span><span class="dot"></span>
           </span>
         </div>
-        <div class="sub">Nova Scotia, Canada</div>
+        <div class="sub">Ontario, Canada</div>
       </div>
     </div>
 
-    <div class="hero">
-      <div class="icon">☁️</div>
-      <div class="temp">-5°</div>
-      <div class="cond">OVERCAST</div>
-    </div>
+  <div class="contentGrid">
+    <aside class="readerCol" aria-label="ECCC Reader">
+      <section class="readerCard" id="ecccReader">
+        <div class="readerHeader">
+          <div>
+            <div class="title">ECCC Reader</div>
+            <div class="sub">Environment and Climate Change Canada</div>
+          </div>
+          <div class="meta">Toronto, ON</div>
+        </div>
 
-    <div class="agreementCard" id="agreementCard">
-      <div class="agreeRow">
-        <span class="sigma">Σ Agreement</span>
-        <span class="score">73</span>
-        <span class="qual">· High</span>
+        <div class="alertsStrip" aria-label="Active alerts">
+          <div class="alertsLabel">Alerts</div>
+          <article class="readerItem" data-open="false">
+            <div class="readerItemHeader">
+              <h3 class="readerItemTitle">Weather advisory in effect</h3>
+              <div class="readerMeta">
+                <span>Issued (sample) 6:12 p.m.</span>
+                <span aria-hidden="true">·</span>
+                <span>Alert</span>
+              </div>
+            </div>
+            <p class="readerExcerpt">
+              Official alert text from ECCC appears here. Tap "Show original" to read the full bulletin wording.
+            </p>
+            <button class="readerToggle" type="button" data-toggle="original" aria-expanded="false"
+              aria-controls="alert-original-1">
+              Show original
+            </button>
+            <div class="readerOriginal" id="alert-original-1" role="region" aria-label="Original alert text"
+              aria-hidden="true">
+              <div class="readerOriginalInner">
+                Original alert bulletin text as published by ECCC.
+              </div>
+            </div>
+            <div class="readerFoot">
+              <span>ECCC</span>
+              <a class="readerLink" href="https://weather.gc.ca" target="_blank" rel="noopener">Open source</a>
+            </div>
+          </article>
+        </div>
+
+        <div class="readerTabs" role="tablist" aria-label="ECCC reader tabs">
+          <button class="readerTab" role="tab" id="eccc-tab-updates" aria-selected="true"
+            aria-controls="eccc-panel-updates">
+            Updates
+          </button>
+          <button class="readerTab" role="tab" id="eccc-tab-forecast" aria-selected="false"
+            aria-controls="eccc-panel-forecast" tabindex="-1">
+            Forecast
+          </button>
+        </div>
+
+        <div class="readerPanels">
+          <div class="readerPanel" role="tabpanel" id="eccc-panel-updates" aria-labelledby="eccc-tab-updates">
+            <article class="readerItem" data-open="false">
+              <div class="readerItemHeader">
+                <h3 class="readerItemTitle">Special weather statement</h3>
+                <div class="readerMeta">
+                  <span>Issued (sample) 4:40 p.m.</span>
+                  <span aria-hidden="true">·</span>
+                  <span>Statement</span>
+                </div>
+              </div>
+              <p class="readerExcerpt">
+                Statement text from ECCC appears here with the most important lines visible at a glance.
+              </p>
+              <div class="readerSummary">
+                <span class="readerSummaryLabel">Summary</span>
+                <p class="readerSummaryText">
+                  Short, clearly labeled summary would live here when the bulletin is long enough to justify it.
+                </p>
+              </div>
+              <button class="readerToggle" type="button" data-toggle="original" aria-expanded="false"
+                aria-controls="update-original-1">
+                Show original
+              </button>
+              <div class="readerOriginal" id="update-original-1" role="region" aria-label="Original statement text"
+                aria-hidden="true">
+                <div class="readerOriginalInner">
+                  Original statement text as published by ECCC for this area.
+                </div>
+              </div>
+              <div class="readerFoot">
+                <span>ECCC</span>
+                <a class="readerLink" href="https://weather.gc.ca" target="_blank" rel="noopener">Open source</a>
+              </div>
+            </article>
+
+            <article class="readerItem" data-open="false">
+              <div class="readerItemHeader">
+                <h3 class="readerItemTitle">Public weather discussion</h3>
+                <div class="readerMeta">
+                  <span>Issued (sample) 2:05 p.m.</span>
+                  <span aria-hidden="true">·</span>
+                  <span>Notes</span>
+                </div>
+              </div>
+              <p class="readerExcerpt">
+                Forecaster notes or narrative discussion text appears here when available for the routed area.
+              </p>
+              <button class="readerToggle" type="button" data-toggle="original" aria-expanded="false"
+                aria-controls="update-original-2">
+                Show original
+              </button>
+              <div class="readerOriginal" id="update-original-2" role="region" aria-label="Original discussion text"
+                aria-hidden="true">
+                <div class="readerOriginalInner">
+                  Original discussion text as published by ECCC.
+                </div>
+              </div>
+              <div class="readerFoot">
+                <span>ECCC</span>
+                <a class="readerLink" href="https://weather.gc.ca" target="_blank" rel="noopener">Open source</a>
+              </div>
+            </article>
+          </div>
+
+          <div class="readerPanel" role="tabpanel" id="eccc-panel-forecast" aria-labelledby="eccc-tab-forecast"
+            hidden>
+            <article class="readerItem" data-open="false">
+              <div class="readerItemHeader">
+                <h3 class="readerItemTitle">City forecast</h3>
+                <div class="readerMeta">
+                  <span>Issued (sample) 5:00 a.m.</span>
+                  <span aria-hidden="true">·</span>
+                  <span>Forecast text</span>
+                </div>
+              </div>
+              <p class="readerExcerpt">
+                Official city forecast text appears here with a one to two line excerpt for quick scanning.
+              </p>
+              <button class="readerToggle" type="button" data-toggle="original" aria-expanded="false"
+                aria-controls="forecast-original-1">
+                Show original
+              </button>
+              <div class="readerOriginal" id="forecast-original-1" role="region"
+                aria-label="Original forecast text" aria-hidden="true">
+                <div class="readerOriginalInner">
+                  Original forecast text as published by ECCC.
+                </div>
+              </div>
+              <div class="readerFoot">
+                <span>ECCC</span>
+                <a class="readerLink" href="https://weather.gc.ca" target="_blank" rel="noopener">Open source</a>
+              </div>
+            </article>
+
+            <article class="readerItem" data-open="false">
+              <div class="readerItemHeader">
+                <h3 class="readerItemTitle">Current conditions</h3>
+                <div class="readerMeta">
+                  <span>Observed (sample) 6:00 a.m.</span>
+                  <span aria-hidden="true">·</span>
+                  <span>Conditions text</span>
+                </div>
+              </div>
+              <p class="readerExcerpt">
+                Narrative conditions text appears here when provided by ECCC for the routed city page.
+              </p>
+              <button class="readerToggle" type="button" data-toggle="original" aria-expanded="false"
+                aria-controls="forecast-original-2">
+                Show original
+              </button>
+              <div class="readerOriginal" id="forecast-original-2" role="region"
+                aria-label="Original conditions text" aria-hidden="true">
+                <div class="readerOriginalInner">
+                  Original conditions narrative as published by ECCC.
+                </div>
+              </div>
+              <div class="readerFoot">
+                <span>ECCC</span>
+                <a class="readerLink" href="https://weather.gc.ca" target="_blank" rel="noopener">Open source</a>
+              </div>
+            </article>
+          </div>
+        </div>
+      </section>
+    </aside>
+
+    <div class="consensusCol">
+      <div class="hero">
+        <div class="icon">☁️</div>
+        <div class="temp">-5°</div>
+        <div class="cond">OVERCAST</div>
       </div>
 
-      <div class="metrics" role="group" aria-label="Metric selectors">
-        <button class="metric" data-metric="temp" type="button" aria-label="Temperature" aria-pressed="false">
-          <div class="ring">
-            <svg viewBox="0 0 60 60" aria-hidden="true">
-              <circle class="bg" cx="30" cy="30" r="24"></circle>
-              <circle class="fg" cx="30" cy="30" r="24" style="stroke:#2ae6a6; stroke-dashoffset: 17;"></circle>
-            </svg>
-          </div>
-          <div class="val">89</div>
-          <div class="lbl">TEMP</div>
-        </button>
+      <div class="agreementCard" id="agreementCard">
+        <div class="agreeRow">
+          <span class="sigma">Σ Agreement</span>
+          <span class="score">73</span>
+          <span class="qual">· High</span>
+        </div>
 
-        <button class="metric" data-metric="precip" type="button" aria-label="Precipitation" aria-pressed="false">
-          <div class="ring">
-            <svg viewBox="0 0 60 60" aria-hidden="true">
-              <circle class="bg" cx="30" cy="30" r="24"></circle>
-              <circle class="fg" cx="30" cy="30" r="24" style="stroke:#2ae6a6; stroke-dashoffset: 0;"></circle>
-            </svg>
-          </div>
-          <div class="val">100</div>
-          <div class="lbl">PRECIP</div>
-        </button>
+        <div class="metrics" role="group" aria-label="Metric selectors">
+          <button class="metric" data-metric="temp" type="button" aria-label="Temperature" aria-pressed="false">
+            <div class="ring">
+              <svg viewBox="0 0 60 60" aria-hidden="true">
+                <circle class="bg" cx="30" cy="30" r="24"></circle>
+                <circle class="fg" cx="30" cy="30" r="24" style="stroke:#2ae6a6; stroke-dashoffset: 17;"></circle>
+              </svg>
+            </div>
+            <div class="val">89</div>
+            <div class="lbl">TEMP</div>
+          </button>
 
-        <button class="metric wind" id="windBtn" data-metric="wind" type="button" aria-label="Wind" aria-pressed="false"
-          aria-expanded="false" aria-controls="evidence">
-          <div class="ring">
-            <svg viewBox="0 0 60 60" aria-hidden="true">
-              <circle class="bg" cx="30" cy="30" r="24"></circle>
-              <circle class="fg" cx="30" cy="30" r="24"></circle>
-            </svg>
-          </div>
-          <div class="val">68</div>
-          <div class="lbl">WIND</div>
-        </button>
+          <button class="metric" data-metric="precip" type="button" aria-label="Precipitation" aria-pressed="false">
+            <div class="ring">
+              <svg viewBox="0 0 60 60" aria-hidden="true">
+                <circle class="bg" cx="30" cy="30" r="24"></circle>
+                <circle class="fg" cx="30" cy="30" r="24" style="stroke:#2ae6a6; stroke-dashoffset: 0;"></circle>
+              </svg>
+            </div>
+            <div class="val">100</div>
+            <div class="lbl">PRECIP</div>
+          </button>
 
-        <button class="metric" data-metric="cond" type="button" aria-label="Conditions" aria-pressed="false">
-          <div class="ring">
-            <svg viewBox="0 0 60 60" aria-hidden="true">
-              <circle class="bg" cx="30" cy="30" r="24"></circle>
-              <circle class="fg" cx="30" cy="30" r="24" style="stroke:#ffbe2e; stroke-dashoffset: 78;"></circle>
-            </svg>
-          </div>
-          <div class="val">50</div>
-          <div class="lbl">COND</div>
-        </button>
-      </div>
-      <div class="agreementDetails" aria-hidden="true">
-        <div class="agreementDetailsInner">
-          <div class="row"><span class="k">Selected</span><span class="v">Wind</span></div>
-          <div class="row"><span class="k">Spread</span><span class="v">20–25 km/h</span></div>
-          <div class="row"><span class="k">Why this matters</span><span class="v">Models diverge → show sources</span>
+          <button class="metric wind" id="windBtn" data-metric="wind" type="button" aria-label="Wind"
+            aria-pressed="false" aria-expanded="false" aria-controls="evidence">
+            <div class="ring">
+              <svg viewBox="0 0 60 60" aria-hidden="true">
+                <circle class="bg" cx="30" cy="30" r="24"></circle>
+                <circle class="fg" cx="30" cy="30" r="24"></circle>
+              </svg>
+            </div>
+            <div class="val">68</div>
+            <div class="lbl">WIND</div>
+          </button>
+
+          <button class="metric" data-metric="cond" type="button" aria-label="Conditions" aria-pressed="false">
+            <div class="ring">
+              <svg viewBox="0 0 60 60" aria-hidden="true">
+                <circle class="bg" cx="30" cy="30" r="24"></circle>
+                <circle class="fg" cx="30" cy="30" r="24" style="stroke:#ffbe2e; stroke-dashoffset: 78;"></circle>
+              </svg>
+            </div>
+            <div class="val">50</div>
+            <div class="lbl">COND</div>
+          </button>
+        </div>
+        <div class="agreementDetails" aria-hidden="true">
+          <div class="agreementDetailsInner">
+            <div class="row"><span class="k">Selected</span><span class="v">Wind</span></div>
+            <div class="row"><span class="k">Spread</span><span class="v">20–25 km/h</span></div>
+            <div class="row"><span class="k">Why this matters</span><span class="v">Models diverge → show sources</span>
+            </div>
           </div>
         </div>
       </div>
-    </div>
 
-    <div class="evidence" id="evidence" aria-label="Evidence area" aria-hidden="true" inert>
-      <div class="models" id="models" tabindex="0" aria-roledescription="carousel" aria-label="Model evidence carousel">
-        <div class="model">
-          <div class="hdr"><span>ECMWF</span><span class="badge">Wind</span></div>
-          <div class="big">20<span class="unit">km/h</span></div>
-          <div class="meta">↘ W · steady</div>
-        </div>
-        <div class="model">
-          <div class="hdr"><span>GFS</span><span class="badge">Wind</span></div>
-          <div class="big">25<span class="unit">km/h</span></div>
-          <div class="meta">→ W · gusty</div>
-        </div>
-        <div class="model">
-          <div class="hdr"><span>ICON</span><span class="badge">Wind</span></div>
-          <div class="big">25<span class="unit">km/h</span></div>
-          <div class="meta">↗ W · variable</div>
-        </div>
-        <div class="model">
-          <div class="hdr"><span>GEM</span><span class="badge">Wind</span></div>
-          <div class="big">21<span class="unit">km/h</span></div>
-          <div class="meta">→ W · steady</div>
+      <div class="evidence" id="evidence" aria-label="Evidence area" aria-hidden="true" inert>
+        <div class="models" id="models" tabindex="0" aria-roledescription="carousel"
+          aria-label="Model evidence carousel">
+          <div class="model">
+            <div class="hdr"><span>ECMWF</span><span class="badge">Wind</span></div>
+            <div class="big">20<span class="unit">km/h</span></div>
+            <div class="meta">↘ W · steady</div>
+          </div>
+          <div class="model">
+            <div class="hdr"><span>GFS</span><span class="badge">Wind</span></div>
+            <div class="big">25<span class="unit">km/h</span></div>
+            <div class="meta">→ W · gusty</div>
+          </div>
+          <div class="model">
+            <div class="hdr"><span>ICON</span><span class="badge">Wind</span></div>
+            <div class="big">25<span class="unit">km/h</span></div>
+            <div class="meta">↗ W · variable</div>
+          </div>
+          <div class="model">
+            <div class="hdr"><span>GEM</span><span class="badge">Wind</span></div>
+            <div class="big">21<span class="unit">km/h</span></div>
+            <div class="meta">→ W · steady</div>
+          </div>
         </div>
       </div>
-    </div>
-
-    <div class="footer">
-      <div>Based on 4 weather models</div>
-      <div>Updated 7:11 p.m.</div>
     </div>
   </div>
 
-  <script>
-    (function () {
-      const body = document.body;
-      const windBtn = document.getElementById("windBtn");
-      const scrim = document.getElementById("scrim");
-      const evidence = document.getElementById("evidence");
-      const models = document.getElementById("models");
+  <div class="footer">
+    <div>Based on 4 weather models</div>
+    <div>Updated 7:11 p.m.</div>
+  </div>
+  </div>
 
-      const details = document.querySelector('.agreementDetails');
+  <script type="module">
+    import {
+      normalizeCapAlerts,
+      normalizeForecastFromApi,
+      normalizeForecastFromRss,
+      normalizeStatement
+    } from "../client/src/lib/eccc/normalize.ts";
+    import { fetchTextWithCache } from "../client/src/lib/eccc/cache.ts";
+    import {
+      loadAlertsForLocation,
+      persistAlertsForLocation,
+      pruneExpiredAlerts
+    } from "../client/src/lib/eccc/alerts.ts";
+    import { buildRssUrl } from "../client/src/lib/eccc/sources.ts";
 
+    const body = document.body;
+    const windBtn = document.getElementById("windBtn");
+    const scrim = document.getElementById("scrim");
+    const evidence = document.getElementById("evidence");
+    const models = document.getElementById("models");
+    const details = document.querySelector(".agreementDetails");
+    const reader = document.getElementById("ecccReader");
 
-      function setOpen(next, { focusEvidence = false } = {}) {
-        body.classList.toggle("open", next);
-        windBtn.setAttribute("aria-expanded", next ? "true" : "false");
-        windBtn.setAttribute("aria-pressed", next ? "true" : "false");
-        scrim.setAttribute("aria-hidden", next ? "false" : "true");
+    const FEEDS_POLL_MS = 20 * 60 * 1000;
+    const ALERTS_POLL_MS = 8 * 60 * 1000;
+    const CITYPAGE_BASE = "https://dd.weather.gc.ca/today/citypage_weather";
+    const CAP_BASE = "https://dd.weather.gc.ca/today/alerts/cap";
+    const ROUTING_STORE_KEY = "eccc-demo-routing-v1";
 
-        if (evidence) {
-          evidence.setAttribute("aria-hidden", next ? "false" : "true");
-          evidence.toggleAttribute("inert", !next);
+    const DEMO_LOCATIONS = [
+      {
+        id: "halifax",
+        name: "Halifax",
+        province: "Nova Scotia",
+        provinceCode: "NS",
+        country: "Canada",
+        lat: 44.651,
+        lon: -63.575,
+        eccc: {
+          cityId: "ns-19",
+          locationKey: "ns-19",
+          areaKey: "ns-19",
+          siteCode: "s0000318",
+          capOffice: "CWHX",
+          cityPageUrl: "https://weather.gc.ca/city/pages/ns-19_metric_e.html"
         }
-
-        if (details) {
-          details.setAttribute('aria-hidden', next ? 'false' : 'true');
-          details.toggleAttribute("inert", !next);
+      },
+      {
+        id: "toronto",
+        name: "Toronto",
+        province: "Ontario",
+        provinceCode: "ON",
+        country: "Canada",
+        lat: 43.6532,
+        lon: -79.3832,
+        eccc: {
+          cityId: "on-143",
+          locationKey: "on-143",
+          areaKey: "on-143",
+          siteCode: "s0000458",
+          capOffice: "CWTO",
+          cityPageUrl: "https://weather.gc.ca/city/pages/on-143_metric_e.html"
         }
+      },
+      {
+        id: "vancouver",
+        name: "Vancouver",
+        province: "British Columbia",
+        provinceCode: "BC",
+        country: "Canada",
+        lat: 49.2827,
+        lon: -123.1207,
+        eccc: {
+          cityId: "bc-74",
+          locationKey: "bc-74",
+          areaKey: "bc-74",
+          siteCode: "s0000141",
+          capOffice: "CWVR",
+          cityPageUrl: "https://weather.gc.ca/city/pages/bc-74_metric_e.html"
+        }
+      }
+    ];
 
-        if (!next) {
-          const active = document.activeElement;
-          if (active && evidence && evidence.contains(active)) {
-            windBtn.focus();
+    function setOpen(next, { focusEvidence = false } = {}) {
+      body.classList.toggle("open", next);
+      windBtn.setAttribute("aria-expanded", next ? "true" : "false");
+      windBtn.setAttribute("aria-pressed", next ? "true" : "false");
+      scrim.setAttribute("aria-hidden", next ? "false" : "true");
+
+      if (evidence) {
+        evidence.setAttribute("aria-hidden", next ? "false" : "true");
+        evidence.toggleAttribute("inert", !next);
+      }
+
+      if (details) {
+        details.setAttribute("aria-hidden", next ? "false" : "true");
+        details.toggleAttribute("inert", !next);
+      }
+
+      if (!next) {
+        const active = document.activeElement;
+        if (active && evidence && evidence.contains(active)) {
+          windBtn.focus();
+        }
+      }
+
+      if (next && focusEvidence && models) {
+        requestAnimationFrame(() => models.focus({ preventScroll: true }));
+      }
+    }
+
+    function toggle({ focusEvidence = false } = {}) {
+      setOpen(!body.classList.contains("open"), { focusEvidence });
+    }
+
+    windBtn.addEventListener("click", (e) => toggle({ focusEvidence: e.detail === 0 }));
+    scrim.addEventListener("click", () => setOpen(false));
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && body.classList.contains("open")) {
+        e.preventDefault();
+        setOpen(false);
+      }
+    });
+
+    document.querySelectorAll(".metric:not(.wind)").forEach((el) => {
+      el.addEventListener("click", () => setOpen(false));
+    });
+
+    function initReaderInteractions() {
+      if (!reader) return;
+      const tablist = reader.querySelector(".readerTabs");
+
+      if (tablist && !tablist.dataset.bound) {
+        tablist.dataset.bound = "true";
+        tablist.addEventListener("click", (event) => {
+          const tab = event.target.closest('[role="tab"]');
+          if (!tab) return;
+          setActiveTab(tab);
+        });
+
+        tablist.addEventListener("keydown", (event) => {
+          const tabs = getTabs();
+          if (tabs.length === 0) return;
+          const { key } = event;
+          const currentIndex = tabs.findIndex(
+            (tab) => tab.getAttribute("aria-selected") === "true"
+          );
+          let nextIndex = null;
+
+          if (key === "ArrowRight") nextIndex = (currentIndex + 1) % tabs.length;
+          if (key === "ArrowLeft") nextIndex = (currentIndex - 1 + tabs.length) % tabs.length;
+          if (key === "Home") nextIndex = 0;
+          if (key === "End") nextIndex = tabs.length - 1;
+
+          if (nextIndex === null) return;
+          event.preventDefault();
+          setActiveTab(tabs[nextIndex], { focusTab: true });
+        });
+      }
+
+      if (!reader.dataset.togglesBound) {
+        reader.dataset.togglesBound = "true";
+        reader.addEventListener("click", (event) => {
+          const toggle = event.target.closest('[data-toggle="original"]');
+          if (!toggle) return;
+          const card = toggle.closest(".readerItem");
+          if (!card) return;
+          const regionId = toggle.getAttribute("aria-controls");
+          const region = regionId ? document.getElementById(regionId) : null;
+          const isOpen = card.getAttribute("data-open") === "true";
+          setCardOpen(card, toggle, region, !isOpen);
+        });
+      }
+
+      const initialTab =
+        getTabs().find((tab) => tab.getAttribute("aria-selected") === "true") || getTabs()[0];
+      if (initialTab) {
+        setActiveTab(initialTab);
+      }
+    }
+
+    function getTabs() {
+      if (!reader) return [];
+      return Array.from(reader.querySelectorAll('[role="tab"]'));
+    }
+
+    function setActiveTab(tab, { focusTab = false } = {}) {
+      const tabs = getTabs();
+      tabs.forEach((item) => {
+        const isActive = item === tab;
+        item.setAttribute("aria-selected", isActive ? "true" : "false");
+        item.tabIndex = isActive ? 0 : -1;
+        const panelId = item.getAttribute("aria-controls");
+        const panel = panelId ? document.getElementById(panelId) : null;
+        if (panel) panel.hidden = !isActive;
+      });
+
+      if (focusTab) {
+        tab.focus({ preventScroll: true });
+      }
+    }
+
+    function setCardOpen(card, toggle, region, isOpen) {
+      card.setAttribute("data-open", isOpen ? "true" : "false");
+      toggle.setAttribute("aria-expanded", isOpen ? "true" : "false");
+      if (region) {
+        region.setAttribute("aria-hidden", isOpen ? "false" : "true");
+      }
+    }
+
+    function haversineKm(lat1, lon1, lat2, lon2) {
+      const toRad = (value) => (value * Math.PI) / 180;
+      const dLat = toRad(lat2 - lat1);
+      const dLon = toRad(lon2 - lon1);
+      const a =
+        Math.sin(dLat / 2) ** 2 +
+        Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+      return 6371 * c;
+    }
+
+    function findNearestLocation(lat, lon) {
+      let nearest = DEMO_LOCATIONS[0];
+      let nearestDistance = Number.POSITIVE_INFINITY;
+      for (const place of DEMO_LOCATIONS) {
+        const distance = haversineKm(lat, lon, place.lat, place.lon);
+        if (distance < nearestDistance) {
+          nearest = place;
+          nearestDistance = distance;
+        }
+      }
+      return { place: nearest, distance_km: Math.round(nearestDistance * 10) / 10 };
+    }
+
+    function buildRoutingRecord(lat, lon, place, distanceKm) {
+      const id = `${lat.toFixed(4)}|${lon.toFixed(4)}|${place.eccc.locationKey}`;
+      return {
+        id,
+        created_at: new Date().toISOString(),
+        lat,
+        lon,
+        method: "reverse_geocode",
+        location_keys: [place.eccc.locationKey],
+        area_keys: [place.eccc.areaKey],
+        feed_ids: {
+          cap_alerts: `office:${place.eccc.capOffice}`,
+          statements: `city/${place.eccc.cityId}`,
+          forecast_api: `citypage:${place.eccc.provinceCode}:${place.eccc.siteCode}`,
+          forecast_rss: `city/${place.eccc.cityId}`,
+          conditions_api: `citypage:${place.eccc.provinceCode}:${place.eccc.siteCode}`
+        },
+        source_dataset: {
+          name: "demo_locations",
+          version: "1"
+        },
+        distance_km: distanceKm,
+        marine_relevance: false
+      };
+    }
+
+    function saveRoutingRecord(record) {
+      try {
+        const raw = window.localStorage.getItem(ROUTING_STORE_KEY);
+        const parsed = raw ? JSON.parse(raw) : { version: 1, records: [] };
+        const records = Array.isArray(parsed.records) ? parsed.records : [];
+        const next = {
+          version: 1,
+          records: [record, ...records].slice(0, 8)
+        };
+        window.localStorage.setItem(ROUTING_STORE_KEY, JSON.stringify(next));
+      } catch {
+        // ignore storage write failures
+      }
+    }
+
+    function parseListingLinks(html) {
+      const doc = new DOMParser().parseFromString(html, "text/html");
+      return Array.from(doc.querySelectorAll("a"))
+        .map((node) => node.getAttribute("href") || "")
+        .filter(Boolean);
+    }
+
+    function pickLatestFolder(links, pattern) {
+      const candidates = links
+        .map((link) => link.replace(/\/$/, ""))
+        .filter((link) => pattern.test(link))
+        .sort();
+      return candidates[candidates.length - 1] || null;
+    }
+
+    function timestampToIso(stamp) {
+      if (!stamp) return "";
+      const match = stamp.match(/^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})?/);
+      if (!match) return "";
+      const [, year, month, day, hour, minute, second] = match;
+      return new Date(
+        Date.UTC(
+          Number(year),
+          Number(month) - 1,
+          Number(day),
+          Number(hour),
+          Number(minute),
+          Number(second || 0)
+        )
+      ).toISOString();
+    }
+
+    function textFrom(node, selector) {
+      const el = node.querySelector(selector);
+      const text = el?.textContent?.trim();
+      return text && text.length > 0 ? text : "";
+    }
+
+    function buildConditionsText(doc) {
+      const condition = textFrom(doc, "currentConditions > condition");
+      const tempNode = doc.querySelector("currentConditions > temperature");
+      const temp = tempNode?.textContent?.trim() || "";
+      const tempUnits = tempNode?.getAttribute("units") || "C";
+      const windSpeedNode = doc.querySelector("currentConditions > wind > speed");
+      const windSpeed = windSpeedNode?.textContent?.trim() || "";
+      const windUnits = windSpeedNode?.getAttribute("units") || "km/h";
+      const windDir = textFrom(doc, "currentConditions > wind > direction");
+      const parts = [];
+      if (condition) parts.push(condition);
+      if (temp) parts.push(`Temperature ${temp} ${tempUnits}`);
+      if (windSpeed && windDir) {
+        parts.push(`Wind ${windDir} ${windSpeed} ${windUnits}`);
+      } else if (windSpeed) {
+        parts.push(`Wind ${windSpeed} ${windUnits}`);
+      }
+      return parts.join(". ");
+    }
+
+    function parseTemperatureValue(value) {
+      const parsed = Number.parseFloat(String(value || ""));
+      return Number.isFinite(parsed) ? parsed : null;
+    }
+
+    function formatTemperature(value, units) {
+      if (value === null || value === undefined) return "";
+      const rounded = Math.round(value);
+      return `${rounded}°`;
+    }
+
+    async function fetchCitypageXml(place, opts) {
+      const baseUrl = `${CITYPAGE_BASE}/${place.eccc.provinceCode}/`;
+      const listResult = await fetchTextWithCache(baseUrl, {
+        minFreshMs: FEEDS_POLL_MS,
+        offline: opts.offline
+      });
+      const hour = pickLatestFolder(parseListingLinks(listResult.text), /^\d{2}$/);
+      if (!hour) throw new Error("No citypage hours found.");
+
+      const hourUrl = `${CITYPAGE_BASE}/${place.eccc.provinceCode}/${hour}/`;
+      const hourResult = await fetchTextWithCache(hourUrl, {
+        minFreshMs: FEEDS_POLL_MS,
+        offline: opts.offline
+      });
+      const files = parseListingLinks(hourResult.text)
+        .filter((name) => name.includes(`_${place.eccc.siteCode}_`))
+        .filter((name) => name.endsWith("_en.xml"))
+        .sort();
+      const file = files[files.length - 1];
+      if (!file) throw new Error("No citypage xml found for site.");
+
+      const fileUrl = `${CITYPAGE_BASE}/${place.eccc.provinceCode}/${hour}/${file}`;
+      const fileResult = await fetchTextWithCache(fileUrl, {
+        minFreshMs: FEEDS_POLL_MS,
+        offline: opts.offline
+      });
+      return {
+        text: fileResult.text,
+        raw_ref: fileResult.raw_ref,
+        source_url: fileUrl,
+        from_cache: fileResult.from_cache
+      };
+    }
+
+    function parseCitypageXmlToApi(xml) {
+      const doc = new DOMParser().parseFromString(xml, "text/xml");
+      const issuedStamp = textFrom(
+        doc,
+        'forecastGroup > dateTime[name="forecastIssue"] > timeStamp'
+      );
+      const observationStamp = textFrom(
+        doc,
+        'currentConditions > dateTime[name="observation"] > timeStamp'
+      );
+      const condition = textFrom(doc, "currentConditions > condition");
+      const tempNode = doc.querySelector("currentConditions > temperature");
+      const tempValue = parseTemperatureValue(tempNode?.textContent?.trim());
+      const tempUnits = tempNode?.getAttribute("units") || "C";
+      const iconCode = textFrom(doc, "currentConditions > iconCode");
+      const forecasts = Array.from(doc.querySelectorAll("forecastGroup > forecast"))
+        .map((node) => ({
+          period: textFrom(node, "period"),
+          textSummary: textFrom(node, "textSummary")
+        }))
+        .filter((item) => item.textSummary);
+
+      return {
+        issued_at: timestampToIso(issuedStamp),
+        observed_at: timestampToIso(observationStamp),
+        current: {
+          condition,
+          temperature: tempValue,
+          temperature_units: tempUnits,
+          icon_code: iconCode
+        },
+        payload: {
+          forecastGroup: {
+            issuedAt: timestampToIso(issuedStamp),
+            forecast: forecasts
+          },
+          currentConditions: {
+            textSummary: buildConditionsText(doc)
           }
         }
+      };
+    }
 
-        if (next && focusEvidence && models) {
-          requestAnimationFrame(() => models.focus({ preventScroll: true }));
-        }
+    function parseRssItems(xml) {
+      const doc = new DOMParser().parseFromString(xml, "text/xml");
+      const entries = Array.from(doc.getElementsByTagName("entry"));
+      const items = entries.length > 0 ? entries : Array.from(doc.getElementsByTagName("item"));
+
+      return items.map((item) => {
+        const title = textFrom(item, "title");
+        const id = textFrom(item, "id") || textFrom(item, "guid") || title;
+        const updated = textFrom(item, "updated") || textFrom(item, "pubDate") || undefined;
+        const published = textFrom(item, "published") || undefined;
+        const linkEl = item.querySelector("link");
+        const link = linkEl?.getAttribute("href") || textFrom(item, "link") || undefined;
+        const summaryRaw = textFrom(item, "summary") || textFrom(item, "description") || "";
+        const contentRaw = textFrom(item, "content");
+        const summary = summaryRaw ? stripHtml(summaryRaw) : "";
+        const content = contentRaw ? stripHtml(contentRaw) : "";
+        const categories = Array.from(item.querySelectorAll("category"))
+          .map((cat) => cat.getAttribute("term") || cat.textContent || "")
+          .map((value) => value.trim())
+          .filter(Boolean);
+
+        return {
+          id,
+          title,
+          updated,
+          published,
+          link,
+          summary,
+          content,
+          categories
+        };
+      });
+    }
+
+    function stripHtml(input) {
+      const wrapper = document.createElement("div");
+      wrapper.innerHTML = input;
+      return wrapper.textContent?.trim() || "";
+    }
+
+    function isUpdateEntry(entry) {
+      const title = (entry.title || "").toLowerCase();
+      if (title.includes("no watches") && title.includes("warnings")) return false;
+      const categories = (entry.categories || []).map((c) => c.toLowerCase());
+      if (categories.some((c) => c.includes("warnings") || c.includes("watches"))) return true;
+      if (categories.some((c) => c.includes("statement") || c.includes("advisory"))) return true;
+      if (title.includes("warning") || title.includes("watch")) return true;
+      if (title.includes("statement") || title.includes("advisory")) return true;
+      return false;
+    }
+
+    function parseCurrentFromRss(entries) {
+      const entry = entries.find((item) =>
+        (item.categories || []).some((cat) => cat.toLowerCase().includes("current conditions"))
+      );
+      if (!entry) return null;
+      const match = (entry.title || "").match(/^Current Conditions:\s*([^,]+),\s*([+-]?\d+(\.\d+)?)°/i);
+      const condition = match ? match[1].trim() : entry.title || "";
+      const tempValue = match ? Number.parseFloat(match[2]) : null;
+      return {
+        condition,
+        temperature: Number.isFinite(tempValue) ? tempValue : null,
+        temperature_units: "C",
+        icon_code: ""
+      };
+    }
+
+    function dedupeReadable(items) {
+      const byId = new Map();
+      items.forEach((item) => {
+        if (!byId.has(item.id)) byId.set(item.id, item);
+      });
+      return Array.from(byId.values());
+    }
+
+    function sortByRecency(items, dateKey) {
+      return items.sort((a, b) => {
+        const aTime = Date.parse(a[dateKey] || "") || 0;
+        const bTime = Date.parse(b[dateKey] || "") || 0;
+        return bTime - aTime;
+      });
+    }
+
+    function sortForecast(items) {
+      return items.slice().sort((a, b) => {
+        if (a.kind === b.kind) return 0;
+        if (a.kind === "conditions_text") return -1;
+        if (b.kind === "conditions_text") return 1;
+        return 0;
+      });
+    }
+
+    async function collectUpdates(routing, place, opts) {
+      const locationKeys = routing.location_keys.length ? routing.location_keys : routing.area_keys;
+      const rssUrl = buildRssUrl(`city/${place.eccc.cityId}`);
+      if (!rssUrl) return { items: [], from_cache: true };
+      try {
+        const rssResult = await fetchTextWithCache(rssUrl, {
+          minFreshMs: FEEDS_POLL_MS,
+          offline: opts.offline
+        });
+        const entries = parseRssItems(rssResult.text);
+        const updates = entries
+          .filter(isUpdateEntry)
+          .map((entry) =>
+            normalizeStatement(
+              {
+                id: entry.id,
+                title: entry.title,
+                updated: entry.updated,
+                published: entry.published,
+                link: entry.link,
+                summary: entry.summary,
+                content: entry.content
+              },
+              locationKeys,
+              rssResult.raw_ref,
+              rssUrl
+            )
+          );
+        return {
+          items: sortByRecency(dedupeReadable(updates), "issued_at").slice(0, 6),
+          from_cache: rssResult.from_cache
+        };
+      } catch {
+        return { items: [], from_cache: true };
+      }
+    }
+
+    async function collectForecast(routing, place, opts) {
+      const locationKeys = routing.location_keys.length ? routing.location_keys : routing.area_keys;
+      try {
+        const citypage = await fetchCitypageXml(place, opts);
+        const parsed = parseCitypageXmlToApi(citypage.text);
+        const items = normalizeForecastFromApi(
+          parsed.payload,
+          locationKeys,
+          citypage.raw_ref,
+          place.eccc.cityPageUrl
+        ).map((item) => {
+          if (item.kind === "conditions_text" && parsed.observed_at) {
+            return { ...item, issued_at: parsed.observed_at };
+          }
+          if (item.kind === "forecast_text" && parsed.issued_at) {
+            return { ...item, issued_at: parsed.issued_at };
+          }
+          return item;
+        });
+        return {
+          items: sortForecast(dedupeReadable(items)).slice(0, 6),
+          from_cache: citypage.from_cache,
+          current: parsed.current
+        };
+      } catch {
+        // fallback to city RSS
       }
 
-      function toggle({ focusEvidence = false } = {}) {
-        setOpen(!body.classList.contains("open"), { focusEvidence });
+      try {
+        const rssUrl = buildRssUrl(`city/${place.eccc.cityId}`);
+        if (!rssUrl) return { items: [], from_cache: true };
+        const rssResult = await fetchTextWithCache(rssUrl, {
+          minFreshMs: FEEDS_POLL_MS,
+          offline: opts.offline
+        });
+        const entries = parseRssItems(rssResult.text);
+        const current = parseCurrentFromRss(entries);
+        const forecasts = entries
+          .filter((entry) => {
+            const categories = (entry.categories || []).map((c) => c.toLowerCase());
+            if (categories.length === 0) return false;
+            return categories.some((c) => c.includes("weather forecasts"));
+          })
+          .map((entry) =>
+            normalizeForecastFromRss(
+              {
+                id: entry.id,
+                title: entry.title,
+                updated: entry.updated,
+                published: entry.published,
+                link: entry.link,
+                summary: entry.summary,
+                content: entry.content
+              },
+              locationKeys,
+              rssResult.raw_ref,
+              rssUrl
+            )
+          );
+        return {
+          items: sortForecast(dedupeReadable(forecasts)).slice(0, 6),
+          from_cache: rssResult.from_cache,
+          current
+        };
+      } catch {
+        return { items: [], from_cache: true };
+      }
+    }
+
+    async function fetchCapOfficeAlerts(officeCode, opts) {
+      const listResult = await fetchTextWithCache(`${CAP_BASE}/`, {
+        minFreshMs: ALERTS_POLL_MS,
+        offline: opts.offline
+      });
+      const date = pickLatestFolder(parseListingLinks(listResult.text), /^\d{8}$/);
+      if (!date) throw new Error("No CAP dates available.");
+
+      const officeUrl = `${CAP_BASE}/${date}/${officeCode}/`;
+      const officeResult = await fetchTextWithCache(officeUrl, {
+        minFreshMs: ALERTS_POLL_MS,
+        offline: opts.offline
+      });
+      const hour = pickLatestFolder(parseListingLinks(officeResult.text), /^\d{2}$/);
+      if (!hour) throw new Error("No CAP hours available.");
+
+      const hourUrl = `${CAP_BASE}/${date}/${officeCode}/${hour}/`;
+      const hourResult = await fetchTextWithCache(hourUrl, {
+        minFreshMs: ALERTS_POLL_MS,
+        offline: opts.offline
+      });
+
+      const capFiles = parseListingLinks(hourResult.text)
+        .filter((name) => name.endsWith(".cap"))
+        .sort();
+
+      const results = await Promise.all(
+        capFiles.map(async (filename) => {
+          const fileUrl = `${CAP_BASE}/${date}/${officeCode}/${hour}/${filename}`;
+          const fileResult = await fetchTextWithCache(fileUrl, {
+            minFreshMs: ALERTS_POLL_MS,
+            offline: opts.offline
+          });
+          return normalizeCapAlerts(fileResult.text, fileUrl, fileResult.raw_ref, []);
+        })
+      );
+
+      return {
+        alerts: results.flat(),
+        from_cache: hourResult.from_cache
+      };
+    }
+
+    async function collectAlerts(routing, place, opts) {
+      const locationKey = routing.area_keys[0] ?? routing.location_keys[0] ?? "unknown";
+      const now = Date.now();
+      const stored = loadAlertsForLocation(locationKey, now);
+      if (opts.offline) {
+        return { items: sortByRecency(stored, "sent_at"), from_cache: true };
       }
 
-      windBtn.addEventListener("click", (e) => toggle({ focusEvidence: e.detail === 0 }));
-      scrim.addEventListener("click", () => setOpen(false));
-      document.addEventListener("keydown", (e) => {
-        if (e.key === "Escape" && body.classList.contains("open")) {
-          e.preventDefault();
-          setOpen(false);
+      try {
+        const cap = await fetchCapOfficeAlerts(place.eccc.capOffice, opts);
+        const merged = persistAlertsForLocation(locationKey, cap.alerts, now);
+        return { items: sortByRecency(merged, "sent_at"), from_cache: cap.from_cache };
+      } catch {
+        return { items: sortByRecency(stored, "sent_at"), from_cache: true };
+      }
+    }
+
+    function formatTime(iso) {
+      const date = iso ? new Date(iso) : null;
+      if (!date || Number.isNaN(date.getTime())) return "";
+      return new Intl.DateTimeFormat(undefined, {
+        hour: "numeric",
+        minute: "2-digit"
+      }).format(date);
+    }
+
+    function buildExcerpt(text) {
+      const clean = (text || "").replace(/\s+/g, " ").trim();
+      if (!clean) return "";
+      if (clean.length <= 200) return clean;
+      const sliced = clean.slice(0, 200);
+      return `${sliced.replace(/\s+\S*$/, "")}...`;
+    }
+
+    function getSummary(item) {
+      if (item.summary_1line || item.summary_3line) {
+        return {
+          summary_1line: item.summary_1line || null,
+          summary_3line: item.summary_3line || null
+        };
+      }
+      return null;
+    }
+
+    function generateSummary(_item) {
+      return null;
+    }
+
+    function shouldShowSummary(item, summary) {
+      if (!summary) return false;
+      return (item.body_text || "").length >= 280;
+    }
+
+    function clearNodes(container, selector) {
+      container.querySelectorAll(selector).forEach((node) => node.remove());
+    }
+
+    function createMetaElement(timeLabel, kindLabel) {
+      const meta = document.createElement("div");
+      meta.className = "readerMeta";
+      if (timeLabel) {
+        const timeSpan = document.createElement("span");
+        timeSpan.textContent = timeLabel;
+        meta.append(timeSpan);
+      }
+      if (kindLabel) {
+        const dot = document.createElement("span");
+        dot.setAttribute("aria-hidden", "true");
+        dot.textContent = "·";
+        const labelSpan = document.createElement("span");
+        labelSpan.textContent = kindLabel;
+        meta.append(dot, labelSpan);
+      }
+      return meta;
+    }
+
+    function createReaderItem({
+      title,
+      issuedAt,
+      kindLabel,
+      excerpt,
+      body,
+      summary,
+      sourceUrl,
+      sourceLabel,
+      originalLabel
+    }) {
+      const card = document.createElement("article");
+      card.className = "readerItem";
+      card.setAttribute("data-open", "false");
+
+      const header = document.createElement("div");
+      header.className = "readerItemHeader";
+
+      const heading = document.createElement("h3");
+      heading.className = "readerItemTitle";
+      heading.textContent = title || "Update";
+
+      const meta = createMetaElement(issuedAt, kindLabel);
+      header.append(heading, meta);
+
+      const excerptEl = document.createElement("p");
+      excerptEl.className = "readerExcerpt";
+      excerptEl.textContent = excerpt || "";
+
+      const summaryItem = summary?.item || {};
+      const summaryData = getSummary(summaryItem) ?? generateSummary(summaryItem);
+      const summaryShouldShow = shouldShowSummary(summaryItem, summaryData);
+      let summaryEl = null;
+      if (summaryShouldShow && summaryData) {
+        summaryEl = document.createElement("div");
+        summaryEl.className = "readerSummary";
+        const summaryLabel = document.createElement("span");
+        summaryLabel.className = "readerSummaryLabel";
+        summaryLabel.textContent = "Summary";
+        const summaryText = document.createElement("p");
+        summaryText.className = "readerSummaryText";
+        summaryText.textContent = summaryData.summary_3line || summaryData.summary_1line || "";
+        summaryEl.append(summaryLabel, summaryText);
+      }
+
+      const toggle = document.createElement("button");
+      toggle.className = "readerToggle";
+      toggle.type = "button";
+      toggle.setAttribute("data-toggle", "original");
+      toggle.setAttribute("aria-expanded", "false");
+
+      const originalId = `reader-original-${Math.random().toString(36).slice(2, 10)}`;
+      toggle.setAttribute("aria-controls", originalId);
+      toggle.textContent = originalLabel || "Show original";
+
+      const original = document.createElement("div");
+      original.className = "readerOriginal";
+      original.id = originalId;
+      original.setAttribute("role", "region");
+      original.setAttribute("aria-hidden", "true");
+
+      const originalInner = document.createElement("div");
+      originalInner.className = "readerOriginalInner";
+      originalInner.textContent = body || "";
+      original.append(originalInner);
+
+      const foot = document.createElement("div");
+      foot.className = "readerFoot";
+      const sourceSpan = document.createElement("span");
+      sourceSpan.textContent = sourceLabel || "ECCC";
+      const sourceLink = document.createElement("a");
+      sourceLink.className = "readerLink";
+      sourceLink.href = sourceUrl || "https://weather.gc.ca";
+      sourceLink.target = "_blank";
+      sourceLink.rel = "noopener";
+      sourceLink.textContent = "Open source";
+      foot.append(sourceSpan, sourceLink);
+
+      card.append(header, excerptEl);
+      if (summaryEl) card.append(summaryEl);
+      card.append(toggle, original, foot);
+      return card;
+    }
+
+    function renderAlerts(alerts) {
+      if (!reader) return;
+      const alertsStrip = reader.querySelector(".alertsStrip");
+      if (!alertsStrip) return;
+
+      if (!alerts || alerts.length === 0) {
+        alertsStrip.hidden = true;
+        clearNodes(alertsStrip, ".readerItem");
+        return;
+      }
+
+      alertsStrip.hidden = false;
+      clearNodes(alertsStrip, ".readerItem");
+      alerts.forEach((alert) => {
+        const title = alert.headline || alert.event || "Alert";
+        const bodyParts = [alert.description, alert.instruction].filter(Boolean);
+        const bodyText = bodyParts.join(" ");
+        const metaTime = alert.sent_at ? `Issued ${formatTime(alert.sent_at)}` : "";
+        const kindLabel = alert.severity ? `${alert.severity} Alert` : alert.msg_type || "Alert";
+        const card = createReaderItem({
+          title,
+          issuedAt: metaTime,
+          kindLabel,
+          excerpt: buildExcerpt(bodyText || title),
+          body: bodyText,
+          sourceUrl: alert.source_url,
+          sourceLabel: "ECCC",
+          originalLabel: "Show original"
+        });
+        alertsStrip.append(card);
+      });
+    }
+
+    function renderPanel(panelId, items, kindMap) {
+      const panel = document.getElementById(panelId);
+      if (!panel) return;
+      clearNodes(panel, ".readerItem");
+      items.forEach((item) => {
+        const kindLabel = kindMap[item.kind] || "Update";
+        const timeLabel = item.issued_at ? `Issued ${formatTime(item.issued_at)}` : "";
+        const card = createReaderItem({
+          title: item.title,
+          issuedAt: timeLabel,
+          kindLabel,
+          excerpt: buildExcerpt(item.body_text || item.title),
+          body: item.body_text,
+          summary: { item },
+          sourceUrl: item.source_url,
+          sourceLabel: "ECCC",
+          originalLabel: "Show original"
+        });
+        panel.append(card);
+      });
+    }
+
+    function ensureTab(id, label, panelId) {
+      if (!reader) return null;
+      const tablist = reader.querySelector(".readerTabs");
+      if (!tablist) return null;
+      let tab = document.getElementById(id);
+      if (!tab) {
+        tab = document.createElement("button");
+        tab.className = "readerTab";
+        tab.id = id;
+        tab.setAttribute("role", "tab");
+        tab.setAttribute("aria-selected", "false");
+        tab.setAttribute("aria-controls", panelId);
+        tab.tabIndex = -1;
+        tab.textContent = label;
+        tablist.append(tab);
+      }
+      return tab;
+    }
+
+    function ensurePanel(id, tabId) {
+      if (!reader) return null;
+      const panels = reader.querySelector(".readerPanels");
+      if (!panels) return null;
+      let panel = document.getElementById(id);
+      if (!panel) {
+        panel = document.createElement("div");
+        panel.className = "readerPanel";
+        panel.id = id;
+        panel.setAttribute("role", "tabpanel");
+        panel.setAttribute("aria-labelledby", tabId);
+        panel.hidden = true;
+        panels.append(panel);
+      }
+      return panel;
+    }
+
+    function syncTabs({ showMarine, showNotes }) {
+      if (!reader) return;
+      const tabs = reader.querySelector(".readerTabs");
+      const panels = reader.querySelector(".readerPanels");
+      if (!tabs || !panels) return;
+
+      const optional = [
+        { show: showMarine, tabId: "eccc-tab-marine", panelId: "eccc-panel-marine", label: "Marine" },
+        { show: showNotes, tabId: "eccc-tab-notes", panelId: "eccc-panel-notes", label: "Notes" }
+      ];
+
+      optional.forEach(({ show, tabId, panelId, label }) => {
+        if (show) {
+          ensureTab(tabId, label, panelId);
+          ensurePanel(panelId, tabId);
+          return;
         }
+        const tab = document.getElementById(tabId);
+        if (tab) tab.remove();
+        const panel = document.getElementById(panelId);
+        if (panel) panel.remove();
+      });
+    }
+
+    function updateHeader(place) {
+      if (!reader) return;
+      const meta = reader.querySelector(".readerHeader .meta");
+      if (meta) {
+        meta.textContent = `${place.name}, ${place.provinceCode}`;
+      }
+      const placeName = document.querySelector(".place .name");
+      if (placeName) {
+        const textNode = Array.from(placeName.childNodes).find(
+          (node) => node.nodeType === Node.TEXT_NODE
+        );
+        if (textNode) {
+          textNode.textContent = `${place.name} `;
+        }
+      }
+      const placeSub = document.querySelector(".place .sub");
+      if (placeSub) {
+        placeSub.textContent = `${place.province}, ${place.country}`;
+      }
+    }
+
+    function updateHero(current) {
+      if (!current) return;
+      const tempEl = document.querySelector(".hero .temp");
+      const condEl = document.querySelector(".hero .cond");
+      const tempText = formatTemperature(current.temperature, current.temperature_units);
+      if (tempEl && tempText) {
+        tempEl.textContent = tempText;
+      }
+      if (condEl && current.condition) {
+        condEl.textContent = current.condition.toUpperCase();
+      }
+    }
+
+    async function loadEccc(lat, lon) {
+      const { place, distance_km } = findNearestLocation(lat, lon);
+      const routing = buildRoutingRecord(lat, lon, place, distance_km);
+      saveRoutingRecord(routing);
+      pruneExpiredAlerts(routing.area_keys[0], Date.now());
+      updateHeader(place);
+
+      const opts = { offline: !navigator.onLine };
+      const [alerts, updates, forecast] = await Promise.all([
+        collectAlerts(routing, place, opts),
+        collectUpdates(routing, place, opts),
+        collectForecast(routing, place, opts)
+      ]);
+
+      const marine = { items: [], from_cache: true };
+      const notes = { items: [], from_cache: true };
+
+      syncTabs({
+        showMarine: marine.items.length > 0 || routing.marine_relevance,
+        showNotes: notes.items.length > 0
       });
 
-      // Optional: click any other metric just closes (keeps demo focused)
-      document.querySelectorAll(".metric:not(.wind)").forEach((el) => {
-        el.addEventListener("click", () => setOpen(false));
+      updateHero(forecast.current);
+      renderAlerts(alerts.items);
+      renderPanel("eccc-panel-updates", updates.items, {
+        statement: "Statement",
+        discussion: "Notes",
+        misc_official: "Update"
       });
+      renderPanel("eccc-panel-forecast", forecast.items, {
+        forecast_text: "Forecast text",
+        conditions_text: "Conditions text"
+      });
+      if (marine.items.length > 0) {
+        renderPanel("eccc-panel-marine", marine.items, { marine: "Marine" });
+      }
+      if (notes.items.length > 0) {
+        renderPanel("eccc-panel-notes", notes.items, { discussion: "Notes" });
+      }
 
-      // Start closed
-      setOpen(false);
-    })();
+      initReaderInteractions();
+    }
+
+    window.ECCC_DEMO_LOCATIONS = DEMO_LOCATIONS.map((place) => ({
+      id: place.id,
+      name: place.name,
+      lat: place.lat,
+      lon: place.lon
+    }));
+
+    window.setEcccDemoLocation = (idOrLat, lon) => {
+      if (typeof idOrLat === "string") {
+        const match = DEMO_LOCATIONS.find((place) => place.id === idOrLat);
+        if (match) return loadEccc(match.lat, match.lon);
+        return null;
+      }
+      if (typeof idOrLat === "number" && typeof lon === "number") {
+        return loadEccc(idOrLat, lon);
+      }
+      return null;
+    };
+
+    loadEccc(DEMO_LOCATIONS[0].lat, DEMO_LOCATIONS[0].lon);
+
+    setOpen(false);
   </script>
 </body>
 

@@ -11,7 +11,7 @@
  * 
  * BEHAVIOR:
  * - Setting primary also sets active (reduces user confusion)
- * - Initial state: primary = first favorite OR CANADIAN_CITIES[0]
+ * - Initial state: primary = null until hydration, active defaults to CANADIAN_CITIES[0]
  */
 
 import type { Location } from './weatherTypes';
@@ -54,6 +54,15 @@ interface FavoriteLocation extends Location {
     addedAt: string;
 }
 
+function isValidLocation(value: unknown): value is Location {
+    return Boolean(
+        value
+        && typeof (value as Location).latitude === 'number'
+        && typeof (value as Location).longitude === 'number'
+        && typeof (value as Location).name === 'string'
+    );
+}
+
 function loadFavorites(): FavoriteLocation[] {
     if (!canUseStorage()) return [];
     try {
@@ -65,28 +74,9 @@ function loadFavorites(): FavoriteLocation[] {
     }
 }
 
-function loadPrimaryLocation(): Location | null {
-    if (!canUseStorage()) return null;
-    try {
-        const raw = localStorage.getItem(PRIMARY_LOCATION_KEY);
-        if (!raw) return null;
-        const parsed = JSON.parse(raw);
-        // Basic validation
-        if (
-            typeof parsed?.latitude === 'number' &&
-            typeof parsed?.longitude === 'number' &&
-            typeof parsed?.name === 'string'
-        ) {
-            return parsed as Location;
-        }
-        return null;
-    } catch {
-        return null;
-    }
-}
-
 function savePrimaryLocation(location: Location): void {
     if (!canUseStorage()) return;
+    if (!isValidLocation(location)) return;
     try {
         localStorage.setItem(PRIMARY_LOCATION_KEY, JSON.stringify(location));
     } catch {
@@ -94,33 +84,135 @@ function savePrimaryLocation(location: Location): void {
     }
 }
 
-/**
- * Get the initial primary location.
- * Priority: saved primary > first favorite > CANADIAN_CITIES[0]
- */
-function getInitialPrimaryLocation(): Location | null {
-    // 1. Check for saved primary
-    const saved = loadPrimaryLocation();
-    if (saved) return saved;
-
-    // 2. Check for first favorite
-    const favorites = loadFavorites();
-    if (favorites.length > 0) {
-        return favorites[0];
-    }
-
-    // 3. No primary location available
-    // User Requirement: No hidden defaults. Explicitly return null if no primary set.
-    return null;
-}
-
 // ─────────────────────────────────────────────────────────────────────────────
 // Store State (Module-level singleton)
 // ─────────────────────────────────────────────────────────────────────────────
 
-let _primaryLocation: Location | null = getInitialPrimaryLocation();
-let _activeLocation: Location = _primaryLocation || CANADIAN_CITIES[0]; // Active must be valid, confirm fallback for active only
+let _primaryLocation: Location | null = null;
+let _activeLocation: Location = CANADIAN_CITIES[0];
+let _isHydrated = false;
+let _hydrationResult: {
+    ok: boolean;
+    reason: string | null;
+    storagePrimaryRaw: string | null;
+    storagePrimaryParsed: Location | null;
+    storageKeyPresent: boolean;
+    storageEverSet: boolean;
+    primaryLocationKey: string | null;
+} = {
+    ok: false,
+    reason: 'not-hydrated',
+    storagePrimaryRaw: null,
+    storagePrimaryParsed: null,
+    storageKeyPresent: false,
+    storageEverSet: false,
+    primaryLocationKey: null
+};
 const _listeners: Set<() => void> = new Set();
+
+export function hydrateLocationStore(): {
+    ok: boolean;
+    reason: string | null;
+    storagePrimaryRaw: string | null;
+    storagePrimaryParsed: Location | null;
+    storageKeyPresent: boolean;
+    storageEverSet: boolean;
+    primaryLocationKey: string | null;
+} {
+    if (_isHydrated) return _hydrationResult;
+
+    let storagePrimaryRaw: string | null = null;
+    let storagePrimaryParsed: Location | null = null;
+    let storageKeyPresent = false;
+    let storageEverSet = false;
+    let reason: string | null = null;
+    let ok = false;
+    const storageAvailable = canUseStorage();
+
+    if (!storageAvailable) {
+        reason = 'storage-unavailable';
+    } else {
+        storageEverSet = localStorage.getItem(PRIMARY_EVER_SET_KEY) === 'true';
+        storagePrimaryRaw = localStorage.getItem(PRIMARY_LOCATION_KEY);
+        storageKeyPresent = storagePrimaryRaw !== null;
+        if (!storageKeyPresent) {
+            reason = 'storage-empty';
+        } else {
+            const normalized = storagePrimaryRaw.trim().toLowerCase();
+            if (!normalized || normalized === 'undefined' || normalized === 'null') {
+                reason = 'storage-invalid-sentinel';
+                try {
+                    localStorage.removeItem(PRIMARY_LOCATION_KEY);
+                } catch {
+                    // Ignore storage failures
+                }
+            } else {
+            try {
+                const parsed = JSON.parse(storagePrimaryRaw);
+                if (isValidLocation(parsed)) {
+                    storagePrimaryParsed = parsed as Location;
+                    _primaryLocation = storagePrimaryParsed;
+                    _activeLocation = storagePrimaryParsed;
+                    ok = true;
+                } else {
+                    reason = 'storage-invalid';
+                }
+            } catch {
+                reason = 'storage-parse-error';
+            }
+            }
+        }
+    }
+
+    if (!ok) {
+        const favorites = loadFavorites();
+        if (favorites.length > 0) {
+            const fallbackPrimary = favorites[0];
+            _primaryLocation = fallbackPrimary;
+            _activeLocation = fallbackPrimary;
+            ok = true;
+            reason = 'favorite-fallback';
+        } else if (reason === 'storage-invalid-sentinel') {
+            _primaryLocation = _activeLocation;
+            ok = true;
+            reason = 'storage-invalid-sentinel-fallback';
+        } else if (storageEverSet) {
+            _primaryLocation = _activeLocation;
+            ok = true;
+            reason = 'ever-set-fallback';
+        }
+    }
+
+    _hydrationResult = {
+        ok,
+        reason,
+        storagePrimaryRaw,
+        storagePrimaryParsed,
+        storageKeyPresent,
+        storageEverSet,
+        primaryLocationKey: _primaryLocation ? generateLocationId(_primaryLocation) : null
+    };
+
+    _isHydrated = true;
+    notifyListeners();
+    return _hydrationResult;
+}
+
+export function isLocationStoreHydrated(): boolean {
+    return _isHydrated;
+}
+
+export function getLocationHydrationDebug(): {
+    ok: boolean;
+    reason: string | null;
+    storagePrimaryRaw: string | null;
+    storagePrimaryParsed: Location | null;
+    storageKeyPresent: boolean;
+    storageEverSet: boolean;
+    primaryLocationKey: string | null;
+} {
+    return _hydrationResult;
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Public API
@@ -155,6 +247,7 @@ export function setActiveLocation(location: Location): void {
  * Persists to localStorage.
  */
 export function setPrimaryLocation(location: Location): void {
+    if (!isValidLocation(location)) return;
     _primaryLocation = location;
     _activeLocation = location; // Switch view to new primary
     savePrimaryLocation(location);
@@ -188,17 +281,20 @@ let _cachedSnapshot: {
     activeLocation: Location;
     primaryLocation: Location | null;
     isViewingPrimary: boolean;
+    isHydrated: boolean;
 } = {
     activeLocation: _activeLocation,
     primaryLocation: _primaryLocation,
-    isViewingPrimary: _primaryLocation ? generateLocationId(_activeLocation) === generateLocationId(_primaryLocation) : false
+    isViewingPrimary: _primaryLocation ? generateLocationId(_activeLocation) === generateLocationId(_primaryLocation) : false,
+    isHydrated: _isHydrated
 };
 
 function updateCachedSnapshot(): void {
     _cachedSnapshot = {
         activeLocation: _activeLocation,
         primaryLocation: _primaryLocation,
-        isViewingPrimary: _primaryLocation ? generateLocationId(_activeLocation) === generateLocationId(_primaryLocation) : false
+        isViewingPrimary: _primaryLocation ? generateLocationId(_activeLocation) === generateLocationId(_primaryLocation) : false,
+        isHydrated: _isHydrated
     };
 }
 
@@ -227,6 +323,7 @@ export function getLocationSnapshot(): {
     activeLocation: Location;
     primaryLocation: Location | null;
     isViewingPrimary: boolean;
+    isHydrated: boolean;
 } {
     return _cachedSnapshot;
 }
@@ -298,7 +395,18 @@ export function markPrimaryAsSet(): void {
  * Reset store to initial state. FOR TESTING ONLY.
  */
 export function __resetStoreForTesting(): void {
-    _primaryLocation = getInitialPrimaryLocation();
-    _activeLocation = _primaryLocation || CANADIAN_CITIES[0];
+    _primaryLocation = null;
+    _activeLocation = CANADIAN_CITIES[0];
+    _isHydrated = false;
+    _hydrationResult = {
+        ok: false,
+        reason: 'not-hydrated',
+        storagePrimaryRaw: null,
+        storagePrimaryParsed: null,
+        storageKeyPresent: false,
+        storageEverSet: false,
+        primaryLocationKey: null
+    };
     _listeners.clear();
+    updateCachedSnapshot();
 }

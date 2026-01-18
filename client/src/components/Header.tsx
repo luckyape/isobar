@@ -69,6 +69,7 @@ const Header = memo(({ location, primaryLocation, isPrimary = true, isOffline, i
                 size="icon"
                 onClick={handleRefreshClick}
                 disabled={isLoading || isOffline}
+                aria-label="Refresh forecasts"
                 className="glass-card border-white/10 h-9 w-9"
               >
                 <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
