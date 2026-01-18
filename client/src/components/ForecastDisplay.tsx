@@ -61,7 +61,7 @@ export function ForecastDisplay({
       valueLabel: 'text-[clamp(1.85rem,4.2vw,3.25rem)] sm:text-[clamp(2.35rem,3.2vw,3.75rem)] text-foreground',
       unit: 'text-xl sm:text-3xl text-foreground/50',
       desc: 'text-[9px] sm:text-xs text-foreground/50',
-      iconMargin: 'mb-0.5 sm:mb-1.5',
+      iconMargin: 'mb-0 sm:mb-0.5',
       descMargin: 'mt-0.5 sm:mt-1.5'
     };
 

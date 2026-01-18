@@ -135,7 +135,7 @@ export function ModelForecastDetailPanel({
             <ForecastDisplay
               temperature={temp}
               precision={1}
-              icon={iconName ? <WeatherIcon name={iconName} className="h-full w-full" /> : '—'}
+              icon={iconName ? <WeatherIcon name={iconName} className="h-10 w-10 sm:h-14 sm:w-14 text-foreground/80" /> : '—'}
               description={weatherDescription ?? '—'}
               className="mt-1.5 sm:mt-3 flex-1"
             />

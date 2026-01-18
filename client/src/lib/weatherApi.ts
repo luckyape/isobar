@@ -909,7 +909,7 @@ async function fetchModelForecast(
 
       return {
         time: timeStr,
-        epoch: epochMs,
+        epoch: timeSeconds,
         temperature: safeGet<number>(data, 'hourly.temperature_2m', i, 0),
         precipitation: safeGet<number>(data, 'hourly.precipitation', i, 0),
         precipitationProbability: safeGet<number>(data, 'hourly.precipitation_probability', i, 0),

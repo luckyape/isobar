@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-unused-vars, react-hooks/exhaustive-deps */
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
-import { Loader2, ChevronDown, ChevronUp } from 'lucide-react';
+import { Loader2, ChevronDown, ChevronUp, Thermometer, Droplets, Wind, Cloud, Layers } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Header } from '@/components/Header';
@@ -38,12 +38,12 @@ import { WEATHER_CODES } from '@/lib/weatherApi';
 import { findCurrentHourIndex, formatHourLabel, parseOpenMeteoDateTime } from '@/lib/timeUtils';
 
 // Unified drawer tab configuration
-const DRAWER_TABS: Array<{ key: string; label: string; shortLabel: string; icon: WeatherIconName | null }> = [
-  { key: 'overall', label: 'Overall', shortLabel: 'All', icon: null },
-  { key: 'temperature', label: 'Temperature', shortLabel: 'Temp', icon: 'Thermometer' },
-  { key: 'precipitation', label: 'Precipitation', shortLabel: 'Precip', icon: 'Raindrops' },
-  { key: 'wind', label: 'Wind', shortLabel: 'Wind', icon: 'Wind' },
-  { key: 'conditions', label: 'Conditions', shortLabel: 'Cond', icon: 'PartlyCloudyDay' }
+const DRAWER_TABS = [
+  { key: 'overall', label: 'Overall', shortLabel: 'All', icon: Layers },
+  { key: 'temperature', label: 'Temperature', shortLabel: 'Temp', icon: Thermometer },
+  { key: 'precipitation', label: 'Precipitation', shortLabel: 'Precip', icon: Droplets },
+  { key: 'wind', label: 'Wind', shortLabel: 'Wind', icon: Wind },
+  { key: 'conditions', label: 'Conditions', shortLabel: 'Cond', icon: Cloud }
 ] as const;
 type DrawerTabKey = typeof DRAWER_TABS[number]['key'];
 
@@ -253,7 +253,7 @@ export default function Home() {
   const todayDate = (currentConsensus?.time ?? currentForecastHour?.time)?.split('T')[0];
   const representativeForecast = okForecasts[0];
   const representativeDaily = representativeForecast?.daily.find(d => d.date === todayDate);
-  const isDay = getIsDay(currentEpoch, representativeDaily, location?.timezone);
+  const isDay = getIsDay(nowSeconds, representativeDaily, location?.timezone);
   const conditionIconName = weatherCodeValue !== null ? conditionToIconName(weatherCodeValue, isDay) : null;
   const ConditionIcon = conditionIconName
     ? <WeatherIcon name={conditionIconName} className="h-full w-full" />
@@ -710,7 +710,7 @@ export default function Home() {
                         {/* Tab Indicators with sliding pill */}
                         <div className="mx-4 mt-2 mb-4 grid grid-cols-5 gap-1 p-1 rounded-lg bg-white/[0.04]">
                           {DRAWER_TABS.map((tab) => {
-                            const iconName = tab.icon;
+                            const Icon = tab.icon;
                             const isActive = activeDrawerTab === tab.key;
                             return (
                               <button
@@ -732,7 +732,7 @@ export default function Home() {
                                   />
                                 )}
                                 <span className={`relative z-10 ${isActive ? 'text-foreground' : 'text-foreground/50 hover:text-foreground/80'}`}>
-                                  {iconName ? <WeatherIcon name={iconName} className="h-4 w-4" /> : <span className="text-xs">{tab.shortLabel}</span>}
+                                  {Icon ? <Icon className="h-4 w-4" /> : <span className="text-xs">{tab.shortLabel}</span>}
                                 </span>
                               </button>
                             );
@@ -773,7 +773,7 @@ export default function Home() {
                   )}
 
                   {/* Forecast Console with Decomposed Gauges */}
-                  <div className="flex flex-col items-center gap-4 lg:items-end -mt-6">
+                  <div className="flex flex-col items-center gap-4 lg:items-end -mt-12 sm:-mt-20">
                     <DualRingGauge
                       score={heroAgreementScore}
                       size="lg"
@@ -818,7 +818,7 @@ export default function Home() {
                       <div className="mb-4 p-1 rounded-lg bg-white/[0.04] flex items-center">
                         <div className="flex-1 grid grid-cols-5 gap-1">
                           {DRAWER_TABS.map((tab) => {
-                            const iconName = tab.icon;
+                            const Icon = tab.icon;
                             const isActive = activeDrawerTab === tab.key;
                             return (
                               <button
@@ -840,7 +840,7 @@ export default function Home() {
                                   />
                                 )}
                                 <span className={`relative z-10 flex items-center gap-1.5 ${isActive ? 'text-foreground' : 'text-foreground/60 hover:text-foreground'}`}>
-                                  {iconName && <WeatherIcon name={iconName} className="h-3.5 w-3.5" />}
+                                  {Icon && <Icon className="h-3.5 w-3.5" />}
                                   <span>{tab.label}</span>
                                 </span>
                               </button>
