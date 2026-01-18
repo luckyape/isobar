@@ -25,6 +25,7 @@ import {
   ComparisonTooltipRow,
   ComparisonTooltipSection
 } from '@/components/ComparisonTooltip';
+import { ModelEmblem } from '@/components/ModelEmblem';
 import { useIsMobile } from '@/hooks/useMediaQuery';
 
 interface HourlyChartProps {
@@ -72,6 +73,7 @@ export function HourlyChartTooltip({
   const hasConsensusData = Number.isFinite(data.consensusMean ?? NaN);
   const observedValue = data.observed;
   const hasObserved = observedVisible && Number.isFinite(observedValue ?? NaN);
+
   const agreement = Number.isFinite(data.temperatureAgreement ?? NaN)
     ? data.temperatureAgreement
     : data.overallAgreement;
@@ -80,20 +82,15 @@ export function HourlyChartTooltip({
     <ComparisonTooltipCard title={data.fullLabel}>
       {hasConsensusData && (
         <ComparisonTooltipSection>
-          <ComparisonTooltipRow
-            label="Consensus"
-            value={formatTemp(data.consensusMean)}
-          />
+          <ComparisonTooltipRow label="Consensus" value={formatTemp(data.consensusMean)} />
           <ComparisonTooltipRow
             label="Range"
             value={`${formatTemp(data.consensusMin)} - ${formatTemp(data.consensusMax)}`}
           />
-          <ComparisonTooltipRow
-            label="Agreement"
-            value={formatAgreement(agreement)}
-          />
+          <ComparisonTooltipRow label="Agreement" value={formatAgreement(agreement)} />
         </ComparisonTooltipSection>
       )}
+
       {hasObserved && (
         <ComparisonTooltipSection divider={hasConsensusData}>
           <ComparisonTooltipRow
@@ -108,23 +105,25 @@ export function HourlyChartTooltip({
           />
         </ComparisonTooltipSection>
       )}
+
       <ComparisonTooltipSection divider={hasConsensusData || hasObserved}>
         {WEATHER_MODELS.map((model) => {
           const value = data[model.id];
           if (!Number.isFinite(value ?? NaN)) return null;
 
           let valueContent: React.ReactNode = formatTemp(value);
+
           if (hasObserved && Number.isFinite(observedValue ?? NaN)) {
             const delta = (value as number) - (observedValue as number);
             if (Number.isFinite(delta)) {
               const sign = delta > 0 ? '+' : '';
-              const color = delta > 0 ? 'text-red-400' : delta < 0 ? 'text-blue-400' : 'text-gray-400';
+              const color =
+                delta > 0 ? 'text-red-400' : delta < 0 ? 'text-blue-400' : 'text-gray-400';
               const roundedDelta = Math.round(delta * 10) / 10;
-              const deltaStr = `(${sign}${roundedDelta})`;
               valueContent = (
                 <span className="flex items-center gap-1">
                   {formatTemp(value)}
-                  <span className={`text-[10px] ${color}`}>{deltaStr}</span>
+                  <span className={`text-[10px] ${color}`}>({sign}{roundedDelta})</span>
                 </span>
               );
             }
@@ -133,14 +132,15 @@ export function HourlyChartTooltip({
           return (
             <ComparisonTooltipRow
               key={model.id}
-              label={`${model.name}:`}
-              value={valueContent}
-              icon={
-                <span
-                  className="h-2 w-2 triangle-icon"
-                  style={{ backgroundColor: model.color }}
+              label={
+                <ModelEmblem
+                  model={model}
+                  className="gap-2"
+                  iconClassName="h-2 w-2"
+                  textClassName="text-xs"
                 />
               }
+              value={valueContent}
             />
           );
         })}
@@ -157,7 +157,7 @@ export function HourlyChart({
   observations = [],
   timezone,
   visibleLines = {},
-  onToggleLine = () => { },
+  onToggleLine = () => {},
   observedAvailability,
   observedTempByEpoch,
   observationsStatus,
@@ -167,7 +167,6 @@ export function HourlyChart({
   const isMobile = useIsMobile();
   const observedColor = 'var(--color-observed)';
 
-  // Prepare chart data - 48-hour window around the current hour
   const chartWindow = useMemo(() => {
     return buildHourlyTemperatureSeries({
       forecasts,
@@ -178,21 +177,15 @@ export function HourlyChart({
       observedTempByEpoch,
       nowMs
     });
-  }, [
-    forecasts,
-    consensus,
-    showConsensus,
-    fallbackForecast,
-    timezone,
-    observedTempByEpoch,
-    nowMs
-  ]);
+  }, [forecasts, consensus, showConsensus, fallbackForecast, timezone, observedTempByEpoch, nowMs]);
 
   const chartData = chartWindow.points;
   const currentTimeKey = chartWindow.currentTimeKey;
+
   const hasObservations = (observedTempByEpoch?.size ?? 0) > 0;
   const observedEnabled = visibleLines['Observed'] !== false;
   const observedVisible = hasObservations && observedEnabled;
+
   const labelByTime = useMemo(() => {
     const map = new Map<string, string>();
     chartData.forEach((point: any) => {
@@ -204,12 +197,7 @@ export function HourlyChart({
   }, [chartData]);
 
   const tooltipContent = useMemo(
-    () => (
-      <HourlyChartTooltip
-        observedVisible={observedVisible}
-        observedColor={observedColor}
-      />
-    ),
+    () => <HourlyChartTooltip observedVisible={observedVisible} observedColor={observedColor} />,
     [observedVisible, observedColor]
   );
 
@@ -221,7 +209,6 @@ export function HourlyChart({
             data={chartData}
             margin={{ top: 10, right: 10, left: isMobile ? 0 : -10, bottom: 0 }}
           >
-            {/* Consensus range band */}
             <defs>
               <linearGradient id="consensusBand" x1="0" y1="0" x2="0" y2="1">
                 <stop offset="0%" stopColor="oklch(0.75 0.15 195)" stopOpacity={0.3} />
@@ -246,6 +233,7 @@ export function HourlyChart({
               tickFormatter={(value) => `${value}°`}
               width={isMobile ? 32 : 40}
             />
+
             <Tooltip content={tooltipContent} />
 
             {currentTimeKey && (
@@ -258,25 +246,11 @@ export function HourlyChart({
 
             {hasConsensus && (
               <>
-                {/* Consensus range area */}
-                <Area
-                  type="monotone"
-                  dataKey="consensusMax"
-                  stroke="none"
-                  fill="url(#consensusBand)"
-                  fillOpacity={1}
-                />
-                <Area
-                  type="monotone"
-                  dataKey="consensusMin"
-                  stroke="none"
-                  fill="oklch(0.12 0.02 240)"
-                  fillOpacity={1}
-                />
+                <Area type="monotone" dataKey="consensusMax" stroke="none" fill="url(#consensusBand)" fillOpacity={1} />
+                <Area type="monotone" dataKey="consensusMin" stroke="none" fill="oklch(0.12 0.02 240)" fillOpacity={1} />
               </>
             )}
 
-            {/* Individual model lines */}
             {WEATHER_MODELS.map(
               (model) =>
                 visibleLines[model.name] && (
@@ -313,6 +287,7 @@ export function HourlyChart({
                 strokeDasharray="5 5"
               />
             )}
+
             <Brush
               dataKey="time"
               height={30}
@@ -324,7 +299,6 @@ export function HourlyChart({
         </ResponsiveContainer>
       </div>
 
-      {/* Legend */}
       <div className="flex flex-wrap items-center justify-center gap-4 mt-4 pt-4 border-t border-white/10">
         {hasConsensus && (
           <div
@@ -337,34 +311,33 @@ export function HourlyChart({
                 : 'none'
             }}
           >
-            <div
-              className="w-6 h-0.5 bg-white border-dashed border-white"
-              style={{ borderStyle: 'dashed' }}
-            />
+            <div className="w-6 h-0.5 bg-white border-dashed border-white" style={{ borderStyle: 'dashed' }} />
             <span className="text-xs text-foreground/80">Consensus Mean</span>
           </div>
         )}
+
         <div
           className={`flex items-center gap-2 ${hasObservations ? 'cursor-pointer' : ''}`}
           onClick={() => hasObservations && onToggleLine('Observed')}
           style={{
             opacity: !hasObservations ? 0.4 : observedEnabled ? 1 : 0.5,
-            textShadow: hasObservations && observedEnabled
-              ? `0 0 8px ${observedColor}`
-              : 'none'
+            textShadow: hasObservations && observedEnabled ? `0 0 8px ${observedColor}` : 'none'
           }}
         >
-          <div
-            className="w-6 h-0.5 rounded"
-            style={{ backgroundColor: observedColor }}
-          />
+          <div className="w-6 h-0.5 rounded" style={{ backgroundColor: observedColor }} />
           <span
             className="text-xs text-foreground/80"
             title={!hasObservations && observedAvailability?.detail ? observedAvailability.detail : undefined}
           >
-            Observed{!hasObservations && observedAvailability?.reason ? ` – ${observedAvailability.reason}` : !hasObservations ? ' – Unavailable' : ''}
+            Observed
+            {!hasObservations && observedAvailability?.reason
+              ? ` – ${observedAvailability.reason}`
+              : !hasObservations
+                ? ' – Unavailable'
+                : ''}
           </span>
         </div>
+
         {WEATHER_MODELS.map((model) => (
           <div
             key={model.id}
@@ -372,16 +345,11 @@ export function HourlyChart({
             onClick={() => onToggleLine(model.name)}
             style={{
               opacity: visibleLines[model.name] ? 1 : 0.5,
-              textShadow: visibleLines[model.name]
-                ? `0 0 8px ${model.color}`
-                : 'none'
+              textShadow: visibleLines[model.name] ? `0 0 8px ${model.color}` : 'none'
             }}
           >
-            <div
-              className="w-6 h-0.5 rounded"
-              style={{ backgroundColor: model.color }}
-            />
-            <span className="text-xs text-foreground/80">{model.name}</span>
+            <div className="w-6 h-0.5 rounded" style={{ backgroundColor: model.color }} />
+            <ModelEmblem model={model} className="ml-1" iconClassName="hidden" textClassName="text-xs" />
           </div>
         ))}
       </div>

@@ -60,7 +60,7 @@ export function ComparisonTooltipRow({
   labelClassName,
   valueClassName
 }: {
-  label: string;
+  label: React.ReactNode;
   value: React.ReactNode;
   icon?: React.ReactNode;
   labelClassName?: string;

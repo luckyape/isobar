@@ -47,27 +47,27 @@ export function ForecastDisplay({
       : '—';
   const sizeStyles = size === 'hero'
     ? {
-      icon: 'text-3xl sm:text-5xl',
-      value: 'text-5xl sm:text-7xl',
-      valueLabel: 'text-[clamp(2.25rem,5vw,4.25rem)] sm:text-[clamp(3rem,4vw,5.25rem)]',
-      unit: 'text-2xl sm:text-4xl',
-      desc: 'text-[10px] sm:text-sm',
-      iconMargin: 'mb-1 sm:mb-2',
-      descMargin: 'mt-1 sm:mt-2'
+      icon: 'w-48 h-48 sm:w-64 sm:h-64 text-primary/10 mix-blend-overlay',
+      value: 'relative z-10 text-7xl sm:text-9xl font-black text-foreground drop-shadow-[0_15px_15px_rgba(0,0,0,0.4)]',
+      valueLabel: 'relative z-10 text-[clamp(2.25rem,5vw,4.25rem)] sm:text-[clamp(3rem,4vw,5.25rem)] text-foreground',
+      unit: 'relative z-10 text-3xl sm:text-5xl text-foreground/80',
+      desc: 'relative z-10 text-xs sm:text-sm font-bold tracking-[0.3em] text-foreground/70 drop-shadow-md',
+      iconMargin: '-mb-8 sm:-mb-12',
+      descMargin: 'mt-0'
     }
     : {
-      icon: 'text-2xl sm:text-4xl',
-      value: 'text-4xl sm:text-6xl',
-      valueLabel: 'text-[clamp(1.85rem,4.2vw,3.25rem)] sm:text-[clamp(2.35rem,3.2vw,3.75rem)]',
-      unit: 'text-xl sm:text-3xl',
-      desc: 'text-[9px] sm:text-xs',
-      iconMargin: 'mb-0.5 sm:mb-1.5',
+      icon: 'text-2xl sm:text-4xl text-foreground/80',
+      value: 'text-4xl sm:text-6xl text-foreground',
+      valueLabel: 'text-[clamp(1.85rem,4.2vw,3.25rem)] sm:text-[clamp(2.35rem,3.2vw,3.75rem)] text-foreground',
+      unit: 'text-xl sm:text-3xl text-foreground/50',
+      desc: 'text-[9px] sm:text-xs text-foreground/50',
+      iconMargin: 'mb-0 sm:mb-0.5',
       descMargin: 'mt-0.5 sm:mt-1.5'
     };
 
   return (
     <div className={cn('flex flex-col items-center text-center', className)}>
-      <div className={cn(sizeStyles.icon, sizeStyles.iconMargin, 'opacity-80 leading-none')}>
+      <div className={cn(sizeStyles.icon, sizeStyles.iconMargin, 'leading-none flex items-center justify-center transition-all duration-500 ease-out')}>
         {icon ?? '—'}
       </div>
       {!hideValue && (
@@ -88,26 +88,34 @@ export function ForecastDisplay({
             )}
           </div>
         ) : (
-          <div className="flex items-baseline justify-center">
-            <span className={cn('font-mono font-bold tracking-tighter drop-shadow-lg leading-none', sizeStyles.value)}>
-              {displayValue}
-            </span>
-            {displayUnit && numericValue !== null && (
-              <span className={cn('ml-1 align-top font-medium opacity-50', sizeStyles.unit)}>
-                {displayUnit}
+          <div className="relative inline-flex items-center justify-center">
+            {/* Value & Unit Group - Centered */}
+            <div className="flex items-baseline z-20">
+              <span className={cn('font-mono font-bold tracking-tighter drop-shadow-2xl leading-none filter', sizeStyles.value)}>
+                {displayValue}
               </span>
-            )}
+              {displayUnit && numericValue !== null && (
+                <span className={cn('ml-1 align-top font-medium opacity-60 drop-shadow-lg', sizeStyles.unit)}>
+                  {displayUnit}
+                </span>
+              )}
+            </div>
+
+            {/* Accessory - Absolute positioned relative to the centered block */}
             {accessory && (
-              <span className="ml-2 flex items-center">
+              <div className={cn(
+                "absolute left-full top-1/2 -translate-y-1/2",
+                size === 'hero' ? "pl-6" : "pl-2"
+              )}>
                 {accessory}
-              </span>
+              </div>
             )}
           </div>
         )
       )}
-      <div className={cn('font-bold uppercase tracking-[0.14em] opacity-50 leading-none', sizeStyles.desc, sizeStyles.descMargin)}>
+      <div className={cn('uppercase leading-none', sizeStyles.desc, sizeStyles.descMargin)}>
         {description ?? '—'}
       </div>
-    </div>
+    </div >
   );
 }

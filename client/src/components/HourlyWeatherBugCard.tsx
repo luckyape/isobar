@@ -11,6 +11,9 @@
 import { ArrowUp, Droplets, Wind, CloudSun, Gauge } from 'lucide-react';
 import type { ModelForecast } from '@/lib/weatherApi';
 import { normalizeWeatherCode, WEATHER_CODES } from '@/lib/weatherApi';
+import { WeatherIcon } from '@/components/icons/WeatherIcon';
+import { conditionToIconName } from '@/lib/weatherIcons';
+import { getIsDay } from '@/lib/dayNight';
 import { cn } from '@/lib/utils';
 
 function withAlpha(color: string, alpha: number): string {
@@ -58,8 +61,9 @@ function windDirectionLabel(degrees: number | null | undefined): string {
 
 function getWeatherInfo(code: number | null | undefined) {
   const normalized = normalizeWeatherCode(code);
-  if (!Number.isFinite(normalized)) return null;
-  return WEATHER_CODES[normalized] || { description: 'Unknown', icon: '❓' };
+  if (!Number.isFinite(normalized)) return { description: 'Unknown', iconName: null };
+  const info = WEATHER_CODES[normalized];
+  return info ? { description: info.description } : { description: 'Unknown' };
 }
 
 export function HourlyWeatherBugCard({
@@ -78,6 +82,12 @@ export function HourlyWeatherBugCard({
   className?: string;
 }) {
   const weatherInfo = getWeatherInfo(hour.weatherCode);
+  const hourEpoch = new Date(hour.time).getTime() / 1000;
+  const isDay = getIsDay(hourEpoch);
+  const iconName = Number.isFinite(hour.weatherCode)
+    ? conditionToIconName(hour.weatherCode as number, isDay)
+    : null;
+
   const directionLabel = windDirectionLabel(hour.windDirection);
   const hasGust = Number.isFinite(hour.windGusts ?? NaN);
 
@@ -121,9 +131,9 @@ export function HourlyWeatherBugCard({
           </div>
 
           {/* Weather icon */}
-          <span className="text-xl leading-none opacity-90" aria-hidden="true">
-            {weatherInfo?.icon ?? '—'}
-          </span>
+          <div className="w-8 h-8 flex items-center justify-center opacity-90" aria-hidden="true">
+            {iconName ? <WeatherIcon name={iconName} className="w-full h-full" /> : <span className="text-xl leading-none">—</span>}
+          </div>
 
           {/* Temperature + short description */}
           <div className="flex min-w-0 items-baseline gap-2">

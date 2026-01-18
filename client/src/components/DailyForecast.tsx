@@ -8,6 +8,7 @@ import { memo, useCallback, useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
 import { ChevronDownIcon, ArrowUp } from 'lucide-react';
 import { ModelBadgeIcon } from '@/components/ModelBadgeIcon';
+import { ModelEmblem } from '@/components/ModelEmblem';
 import {
   Drawer,
   DrawerClose,
@@ -41,6 +42,9 @@ import {
   isSameDate,
   parseOpenMeteoDate
 } from '@/lib/timeUtils';
+import { WeatherIcon } from '@/components/icons/WeatherIcon';
+import { conditionToIconName } from '@/lib/weatherIcons';
+import { getIsDay } from '@/lib/dayNight';
 
 interface DailyForecastProps {
   daily: DailyConsensus[];
@@ -60,6 +64,7 @@ type ModelBreakdownEntry = {
   color: string;
   daily?: ModelDailyForecast;
   runAvailabilityTime?: number | null;
+  countryCode?: string;
 };
 
 type ModelHourlyEntry = {
@@ -67,6 +72,7 @@ type ModelHourlyEntry = {
   color: string;
   hour?: HourlyForecast;
   runAvailabilityTime?: number | null;
+  countryCode?: string;
 };
 
 type OutlierInfo = {
@@ -244,7 +250,8 @@ export const ModelBreakdownPanel = memo(function ModelBreakdownPanel({
           name,
           color: forecast?.model.color ?? 'oklch(0.95 0.01 240)',
           daily: undefined,
-          runAvailabilityTime: null
+          runAvailabilityTime: null,
+          countryCode: forecast?.model.countryCode
         }];
       }
       const daily = forecast.daily.find((entry) => entry.date === day.date)
@@ -256,7 +263,8 @@ export const ModelBreakdownPanel = memo(function ModelBreakdownPanel({
         name,
         color: forecast.model.color,
         daily,
-        runAvailabilityTime
+        runAvailabilityTime,
+        countryCode: forecast.model.countryCode
       }];
     });
   }, [day.date, dayIndex, forecasts, modelNames, modelOrder]);
@@ -411,7 +419,8 @@ export const ModelBreakdownPanel = memo(function ModelBreakdownPanel({
           const precip = getNumeric(entry.daily?.precipitationSum);
           const wind = getNumeric(entry.daily?.windSpeedMax);
           const code = getNumeric(entry.daily?.weatherCode);
-          const weatherInfo = code !== null ? WEATHER_CODES[code] : null;
+          // For daily breakdown, we assume day icons
+          const conditionIconName = code !== null ? conditionToIconName(code, true) : null;
           const ageSeconds = entry.runAvailabilityTime !== null
             ? Math.max(0, nowSeconds - (entry.runAvailabilityTime as number))
             : null;
@@ -448,11 +457,10 @@ export const ModelBreakdownPanel = memo(function ModelBreakdownPanel({
             >
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2 text-[11px] text-foreground/80">
-                  <span
-                    className="h-2.5 w-2.5 triangle-icon"
-                    style={{ backgroundColor: entry.color }}
+                  <ModelEmblem
+                    model={{ name: entry.name, color: entry.color, countryCode: entry.countryCode }}
+                    className="text-foreground/80"
                   />
-                  <span className="font-medium">{entry.name}</span>
                 </div>
                 <span className={`h-2 w-2 rounded-full ${freshnessToneClass[freshnessTone]}`} />
               </div>
@@ -512,7 +520,9 @@ export const ModelBreakdownPanel = memo(function ModelBreakdownPanel({
                   style={conditionOutlierStyle}
                 >
                   <span>Cond</span>
-                  <span className="text-sm leading-none">{weatherInfo ? weatherInfo.icon : '—'}</span>
+                  <span className="text-sm leading-none flex justify-end overflow-visible">
+                    {conditionIconName ? <WeatherIcon name={conditionIconName} className="h-9 w-9 -my-2.5 -mr-2 text-foreground/80" /> : '—'}
+                  </span>
                 </div>
               </div>
             </div>
@@ -585,7 +595,8 @@ const ModelHourlyBreakdownPanel = memo(function ModelHourlyBreakdownPanel({
           name,
           color: forecast?.model.color ?? 'oklch(0.95 0.01 240)',
           hour: undefined,
-          runAvailabilityTime: null
+          runAvailabilityTime: null,
+          countryCode: forecast?.model.countryCode
         }];
       }
       let currentHour;
@@ -607,7 +618,8 @@ const ModelHourlyBreakdownPanel = memo(function ModelHourlyBreakdownPanel({
         name,
         color: forecast.model.color,
         hour: currentHour,
-        runAvailabilityTime
+        runAvailabilityTime,
+        countryCode: forecast.model.countryCode
       }];
     });
   }, [forecasts, modelOrder, modelNames, timezone]);
@@ -781,7 +793,9 @@ const ModelHourlyBreakdownPanel = memo(function ModelHourlyBreakdownPanel({
           const precipAmount = getNumeric(entry.hour?.precipitation);
           const wind = getNumeric(entry.hour?.windSpeed);
           const code = getNumeric(entry.hour?.weatherCode);
-          const weatherInfo = code !== null ? WEATHER_CODES[code] : null;
+          const hourEpoch = entry.hour?.time ? new Date(entry.hour.time).getTime() / 1000 : nowSeconds;
+          const isDay = getIsDay(hourEpoch, undefined, timezone);
+          const conditionIconName = code !== null ? conditionToIconName(code, isDay) : null;
           const ageSeconds = entry.runAvailabilityTime !== null
             ? Math.max(0, nowSeconds - (entry.runAvailabilityTime as number))
             : null;
@@ -820,11 +834,10 @@ const ModelHourlyBreakdownPanel = memo(function ModelHourlyBreakdownPanel({
             >
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2 text-[11px] text-foreground/80">
-                  <span
-                    className="h-2.5 w-2.5 triangle-icon"
-                    style={{ backgroundColor: entry.color }}
+                  <ModelEmblem
+                    model={{ name: entry.name, color: entry.color, countryCode: entry.countryCode }}
+                    className="text-foreground/80"
                   />
-                  <span className="font-medium">{entry.name}</span>
                 </div>
                 {/* Freshness indicator - more prominent in freshness mode */}
                 <div className={cn(
@@ -921,7 +934,9 @@ const ModelHourlyBreakdownPanel = memo(function ModelHourlyBreakdownPanel({
                   style={conditionOutlierStyle}
                 >
                   <span>Cond</span>
-                  <span className="text-sm leading-none">{weatherInfo ? weatherInfo.icon : '—'}</span>
+                  <span className="text-sm leading-none flex justify-end overflow-visible">
+                    {conditionIconName ? <WeatherIcon name={conditionIconName} className="h-9 w-9 -my-2.5 -mr-2 text-foreground/80" /> : '—'}
+                  </span>
                 </div>
               </div>
             </div>
@@ -970,7 +985,10 @@ const HourlyForecastRow = memo(function HourlyForecastRow({
   timezone?: string;
   onToggle: (time: string) => void;
 }) {
-  const weatherInfo = WEATHER_CODES[hour.weatherCode.dominant] || { description: 'Unknown', icon: '❓' };
+  const hourEpoch = new Date(hour.time).getTime() / 1000;
+  const isDay = getIsDay(hourEpoch, undefined, timezone);
+  const conditionIconName = conditionToIconName(hour.weatherCode.dominant, isDay);
+  const weatherDescription = WEATHER_CODES[hour.weatherCode.dominant]?.description || 'Unknown';
   const agreementScore = Number.isFinite(hour.overallAgreement) ? hour.overallAgreement : 0;
   const borderClass = getAgreementBorder(agreementScore);
 
@@ -988,8 +1006,8 @@ const HourlyForecastRow = memo(function HourlyForecastRow({
         </div>
 
         {/* Weather icon */}
-        <div className="w-10 shrink-0 text-center text-xl sm:w-12">
-          {weatherInfo.icon}
+        <div className="w-10 shrink-0 text-center text-xl sm:w-12 h-10">
+          <WeatherIcon name={conditionIconName} className="w-full h-full" />
         </div>
 
         {/* Temperature */}
@@ -1000,7 +1018,7 @@ const HourlyForecastRow = memo(function HourlyForecastRow({
             </span>
           </div>
           <p className="text-xs text-foreground/80 truncate">
-            {weatherInfo.description}
+            {weatherDescription}
           </p>
         </div>
       </div>
@@ -1149,7 +1167,8 @@ const DailyForecastRow = memo(function DailyForecastRow({
   timezone?: string;
   onToggle: (date: string) => void;
 }) {
-  const weatherInfo = WEATHER_CODES[day.weatherCode.dominant] || { description: 'Unknown', icon: '❓' };
+  const conditionIconName = conditionToIconName(day.weatherCode.dominant, true);
+  const weatherDescription = WEATHER_CODES[day.weatherCode.dominant]?.description || 'Unknown';
   const borderClass = showAgreement ? getAgreementBorder(day.overallAgreement) : 'border-white/10';
 
   return (
@@ -1166,8 +1185,8 @@ const DailyForecastRow = memo(function DailyForecastRow({
         </div>
 
         {/* Weather icon */}
-        <div className="w-10 shrink-0 text-center text-2xl sm:w-12">
-          {weatherInfo.icon}
+        <div className="w-10 shrink-0 text-center text-2xl sm:w-12 h-10">
+          <WeatherIcon name={conditionIconName} className="w-full h-full" />
         </div>
 
         {/* Temperature range */}
@@ -1181,7 +1200,7 @@ const DailyForecastRow = memo(function DailyForecastRow({
             </span>
           </div>
           <p className="text-xs text-foreground/80 truncate">
-            {weatherInfo.description}
+            {weatherDescription}
           </p>
         </div>
       </div>

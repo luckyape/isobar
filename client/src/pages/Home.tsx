@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-unused-vars, react-hooks/exhaustive-deps */
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
-import { Loader2, ChevronDown, ChevronUp } from 'lucide-react';
+import { Loader2, ChevronDown, ChevronUp, Thermometer, Droplets, Wind, Cloud, Layers } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Header } from '@/components/Header';
@@ -14,7 +14,6 @@ import {
   DrawerTitle
 } from '@/components/ui/drawer';
 import { Carousel, CarouselContent, CarouselItem, type CarouselApi } from '@/components/ui/carousel';
-import { Cloud, Droplets, Thermometer, Wind } from 'lucide-react';
 import { useWeather } from '@/hooks/useWeather';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { DualRingGauge } from '@/components/DualRingGauge';
@@ -26,6 +25,10 @@ import {
   CATEGORY_DETAIL_META,
   type CategoryDetailKey
 } from '@/components/CategoryDetailPanel';
+import { WeatherIcon } from '@/components/icons/WeatherIcon';
+import { conditionToIconName } from '@/lib/weatherIcons';
+import { getIsDay } from '@/lib/dayNight';
+import type { WeatherIconName } from '@/icons/weather';
 import { ModelForecastDetailPanel } from '@/components/ModelForecastDetailPanel';
 import { DailyForecast, type BreakdownLens } from '@/components/DailyForecast';
 import { GraphsPanel } from '@/components/GraphsPanel';
@@ -34,11 +37,12 @@ import { EcccReader } from '@/components/EcccReader';
 import { getLastFetchDiagnostics, type ModelDiagnostic } from '@/lib/weatherApi';
 import { WEATHER_CODES } from '@/lib/weatherApi';
 import { findCurrentHourIndex, formatHourLabel, parseOpenMeteoDateTime } from '@/lib/timeUtils';
+import { TemporalAnchor } from '@/components/TemporalAnchor';
 import { isLocationStoreHydrated } from '@/lib/locationStore';
 
 // Unified drawer tab configuration
 const DRAWER_TABS = [
-  { key: 'overall', label: 'Overall', shortLabel: 'All', icon: null },
+  { key: 'overall', label: 'Overall', shortLabel: 'All', icon: Layers },
   { key: 'temperature', label: 'Temperature', shortLabel: 'Temp', icon: Thermometer },
   { key: 'precipitation', label: 'Precipitation', shortLabel: 'Precip', icon: Droplets },
   { key: 'wind', label: 'Wind', shortLabel: 'Wind', icon: Wind },
@@ -70,6 +74,7 @@ export default function Home() {
   const [breakdownCategory, setBreakdownCategory] = useState<string | null>(null);
   const [carouselApi, setCarouselApi] = useState<CarouselApi>();
   const [showDiagnostics, setShowDiagnostics] = useState(false);
+  const nowSeconds = Date.now() / 1000;
   const isHydrated = isLocationStoreHydrated();
 
   // 1. Compute Safe Forecast Spine ONCE
@@ -245,8 +250,19 @@ export default function Home() {
     ? (displayWeatherCode as number)
     : null;
   const weatherInfo = weatherCodeValue !== null
-    ? WEATHER_CODES[weatherCodeValue] || { description: 'Unknown', icon: '❓' }
+    ? WEATHER_CODES[weatherCodeValue] || { description: 'Unknown' }
     : null;
+
+  const currentEpoch = currentConsensus?.epoch ?? currentForecastHour?.epoch ?? nowSeconds;
+  const todayDate = (currentConsensus?.time ?? currentForecastHour?.time)?.split('T')[0];
+  const representativeForecast = okForecasts[0];
+  const representativeDaily = representativeForecast?.daily.find(d => d.date === todayDate);
+  const isDay = getIsDay(nowSeconds, representativeDaily, location?.timezone);
+  const conditionIconName = weatherCodeValue !== null ? conditionToIconName(weatherCodeValue, isDay) : null;
+  const ConditionIcon = conditionIconName
+    ? <WeatherIcon name={conditionIconName} className="h-full w-full" />
+    : <span className="text-2xl">?</span>;
+
   const weatherConfidenceCardData = useMemo(() => {
     if (!consensusAvailable || !currentConsensus) return null;
     const formatUpdatedAt = () => {
@@ -274,7 +290,7 @@ export default function Home() {
       current: {
         temp: safeTemp,
         condition: weatherInfo?.description ?? 'Unknown',
-        icon: weatherInfo?.icon ?? '❔'
+        icon: ConditionIcon
       },
       overallConfidence: safeOverall,
       freshness: freshnessScoreValue ?? null,
@@ -319,7 +335,6 @@ export default function Home() {
     });
   }
 
-  const nowSeconds = Date.now() / 1000;
   const modelByName = new Map(forecasts.map((forecast) => [forecast.model.name, forecast]));
   const modelColorByName = new Map(forecasts.map((forecast) => [
     forecast.model.name,
@@ -513,7 +528,7 @@ export default function Home() {
         />
         <div className="container py-20">
           <div className="glass-card p-8 max-w-lg mx-auto text-center readable-text border-white/10">
-            <Cloud className="w-12 h-12 mx-auto mb-4 text-foreground/40" />
+            <WeatherIcon name="Overcast" className="w-12 h-12 mx-auto mb-4 text-foreground/40" />
             <h3 className="text-lg font-medium mb-2">Forecast Unavailable</h3>
             <p className="text-foreground/70 mb-6">
               No weather models returned valid data for this location.
@@ -625,7 +640,19 @@ export default function Home() {
             animate={{ opacity: 1, y: 0 }}
             className="mb-8"
           >
-            <div className="glass-card overflow-hidden p-6 sm:p-8 aurora-glow readable-text">
+            <div className="relative glass-card overflow-hidden p-6 sm:p-8 aurora-glow readable-text">
+              <div className="absolute top-6 right-6 sm:top-8 sm:right-8 z-20">
+                <TemporalAnchor
+                  timestamp={new Date().toISOString()}
+                  timezone={location?.timezone}
+                  designDirection="solar"
+                  mode="live"
+                  solarContext={representativeDaily ? {
+                    sunrise: representativeDaily.sunrise,
+                    sunset: representativeDaily.sunset
+                  } : undefined}
+                />
+              </div>
               <div className="flex flex-col gap-6">
                 <div className="grid gap-6 lg:grid-cols-[1.1fr_1fr] lg:items-start">
                   {/* Location and current weather */}
@@ -763,7 +790,7 @@ export default function Home() {
                   )}
 
                   {/* Forecast Console with Decomposed Gauges */}
-                  <div className="flex flex-col items-center gap-4 lg:items-end">
+                  <div className="flex flex-col items-center gap-4 lg:items-end -mt-12 sm:-mt-20">
                     <DualRingGauge
                       score={heroAgreementScore}
                       size="lg"
@@ -771,7 +798,7 @@ export default function Home() {
                       metrics={heroAgreementMetrics}
                       forecast={displayTemperatureValue !== null && weatherInfo ? {
                         temperature: displayTemperatureValue,
-                        icon: weatherInfo.icon,
+                        icon: ConditionIcon,
                         description: weatherInfo.description
                       } : undefined}
                       onOverallTap={showHeroModels ? () => setActiveDrawerTab('overall') : undefined}

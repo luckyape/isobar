@@ -1,16 +1,11 @@
 import { motion } from 'framer-motion';
-import {
-  ChevronDown,
-  Cloud,
-  Droplets,
-  Thermometer,
-  Wind
-} from 'lucide-react';
-import { useState, type ReactNode } from 'react';
+import { ChevronDown } from 'lucide-react';
+import { useState, type ReactNode, isValidElement } from 'react';
+import { WeatherIcon } from './icons/WeatherIcon';
 
 export interface WeatherConfidenceCardProps {
   location: { name: string; region: string };
-  current: { temp: number; condition: string; icon: string };
+  current: { temp: number; condition: string; icon: ReactNode };
   overallConfidence: number;
   freshness?: number | null;
   categories: {
@@ -161,22 +156,27 @@ function RingGauge({
   );
 }
 
-function renderCurrentIcon(icon: string, condition: string) {
-  if (icon.startsWith('http') || icon.includes('/')) {
+function renderCurrentIcon(icon: ReactNode, condition: string) {
+  if (isValidElement(icon)) {
+    return <div className="h-16 w-16 flex items-center justify-center">{icon}</div>;
+  }
+  if (typeof icon === 'string') {
+    if (icon.startsWith('http') || icon.includes('/')) {
+      return (
+        <img
+          src={icon}
+          alt={condition}
+          className="h-16 w-16 object-contain drop-shadow"
+        />
+      );
+    }
     return (
-      <img
-        src={icon}
-        alt={condition}
-        className="h-16 w-16 object-contain drop-shadow"
-      />
+      <span className="text-5xl leading-none drop-shadow" aria-hidden="true">
+        {icon}
+      </span>
     );
   }
-
-  return (
-    <span className="text-5xl leading-none drop-shadow" aria-hidden="true">
-      {icon}
-    </span>
-  );
+  return null;
 }
 
 export function WeatherConfidenceCard({
@@ -212,28 +212,28 @@ export function WeatherConfidenceCard({
       key: 'temp',
       label: 'Temperature',
       value: categories.temp,
-      icon: Thermometer,
+      iconName: 'Thermometer' as const,
       tone: tempTone
     },
     {
       key: 'precip',
       label: 'Precipitation',
       value: categories.precip,
-      icon: Droplets,
+      iconName: 'Raindrops' as const,
       tone: precipTone
     },
     {
       key: 'wind',
       label: 'Wind',
       value: categories.wind,
-      icon: Wind,
+      iconName: 'Wind' as const,
       tone: windTone
     },
     {
       key: 'cloud',
       label: 'Conditions',
       value: categories.cloud,
-      icon: Cloud,
+      iconName: 'PartlyCloudyDay' as const,
       tone: cloudTone
     }
   ];
@@ -314,7 +314,6 @@ export function WeatherConfidenceCard({
 
         <div className="mt-4 flex flex-wrap items-center justify-center gap-4">
           {categoryItems.map((item, index) => {
-            const Icon = item.icon;
             return (
               <RingGauge
                 key={`${item.key}-icon-ring`}
@@ -327,7 +326,7 @@ export function WeatherConfidenceCard({
                 delay={0.1 + index * 0.05}
                 ariaLabel={`${Math.round(clampPercent(item.value))}% ${item.label} agreement`}
               >
-                <Icon className="h-4 w-4 text-foreground/80" aria-hidden="true" />
+                <WeatherIcon name={item.iconName} className="h-4 w-4 text-foreground/80" aria-hidden="true" />
               </RingGauge>
             );
           })}
@@ -341,7 +340,6 @@ export function WeatherConfidenceCard({
         >
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
             {categoryItems.map((item, index) => {
-              const Icon = item.icon;
               return (
                 <div
                   key={item.key}
@@ -356,7 +354,7 @@ export function WeatherConfidenceCard({
                     delay={0.05 + index * 0.05}
                     ariaLabel={`${Math.round(clampPercent(item.value))}% ${item.label} agreement`}
                   >
-                    <Icon className="h-4 w-4 text-foreground/80" aria-hidden="true" />
+                    <WeatherIcon name={item.iconName} className="h-4 w-4 text-foreground/80" aria-hidden="true" />
                   </RingGauge>
                   <div className="space-y-1">
                     <div className="text-[11px] text-muted-foreground">

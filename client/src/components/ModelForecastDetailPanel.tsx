@@ -5,6 +5,9 @@ import { WEATHER_CODES } from '@/lib/weatherApi';
 import { findCurrentHourIndex } from '@/lib/timeUtils';
 import { cn } from '@/lib/utils';
 import { ForecastDisplay } from '@/components/ForecastDisplay';
+import { WeatherIcon } from '@/components/icons/WeatherIcon';
+import { conditionToIconName } from '@/lib/weatherIcons';
+import { getIsDay } from '@/lib/dayNight';
 
 const MODEL_ORDER = ['ECMWF', 'GFS', 'ICON', 'GEM'] as const;
 const MODEL_ORDER_SET = new Set<string>(MODEL_ORDER);
@@ -88,8 +91,12 @@ export function ModelForecastDetailPanel({
         const code = Number.isFinite(entry.hour?.weatherCode ?? NaN)
           ? (entry.hour?.weatherCode as number)
           : null;
-        const weatherInfo = code !== null
-          ? (WEATHER_CODES[code] || { description: 'Unknown', icon: '❓' })
+
+        const hourEpoch = entry.hour?.time ? new Date(entry.hour.time).getTime() / 1000 : Date.now() / 1000;
+        const isDay = getIsDay(hourEpoch, undefined, timezone);
+        const iconName = code !== null ? conditionToIconName(code, isDay) : null;
+        const weatherDescription = code !== null
+          ? (WEATHER_CODES[code]?.description || 'Unknown')
           : null;
         const tint = entry.color ? withAlpha(entry.color, 0.12) : undefined;
         const cardStyle = tint
@@ -128,8 +135,8 @@ export function ModelForecastDetailPanel({
             <ForecastDisplay
               temperature={temp}
               precision={1}
-              icon={weatherInfo?.icon ?? '—'}
-              description={weatherInfo?.description ?? '—'}
+              icon={iconName ? <WeatherIcon name={iconName} className="h-10 w-10 sm:h-14 sm:w-14 text-foreground/80" /> : '—'}
+              description={weatherDescription ?? '—'}
               className="mt-1.5 sm:mt-3 flex-1"
             />
           </div>
