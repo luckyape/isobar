@@ -137,10 +137,6 @@ export function TemporalAnchor({
     const renderContent = () => {
         // --- Direction A: Solar-Relative (FINAL SPEC) ---
         if (designDirection === 'solar') {
-            let text = '';
-            let Icon = Sun;
-            let iconColor = 'text-primary';
-
             // Fallback if no context
             if (!solarContext) {
                 return <span>{formatDate(displayTime)} · {formatTime(displayTime)}</span>;
@@ -156,42 +152,50 @@ export function TemporalAnchor({
             const solarStatus = getSolarStatus(displayTime, sr, ss);
 
             // Countdown Logic
+            const countdownStyle = "text-[10px] text-foreground/50 uppercase tracking-wide tabular-nums font-medium -mt-2";
+
             if (solarStatus.isDay) {
+                // Dynamic Opacity: 100% at Solar Noon, 30% at Horizon
+                const totalDaylight = ss.getTime() - sr.getTime();
+                const solarNoon = sr.getTime() + (totalDaylight / 2);
+                const distToNoon = Math.abs(displayTime.getTime() - solarNoon);
+                const halfDay = totalDaylight / 2;
+
+                // Normalize distance (0 at noon, 1 at horizon)
+                const normalizedDist = Math.min(distToNoon / halfDay, 1);
+
+                // Opacity curve: 1.0 -> 0.3
+                const solarOpacity = 1.0 - (normalizedDist * 0.7);
+
                 // Count down to sunset
                 const nextEventMs = ss.getTime() - displayTime.getTime();
-                text = `Daylight ${formatCountdown(nextEventMs)}`;
-                Icon = Sun;
-                iconColor = 'text-amber-400';
+                return (
+                    <div className="flex flex-col items-center justify-center">
+                        <SoloSunsetIcon className="w-10 h-10 transition-opacity duration-1000" style={{ opacity: solarOpacity }} />
+                        <span className={countdownStyle}>{formatCountdown(nextEventMs)}</span>
+                    </div>
+                );
             } else {
-                // Night
-                Icon = Moon;
-                iconColor = 'text-blue-300';
-
+                // Night Phase - Resting at 30% opacity
                 // If pre-dawn (before sunrise), count down to sunrise
                 if (displayTime < sr) {
                     const nextEventMs = sr.getTime() - displayTime.getTime();
-                    text = `Sunrise ${formatCountdown(nextEventMs)}`;
+                    return (
+                        <div className="flex flex-col items-center justify-center">
+                            <SoloSunriseIcon className="w-10 h-10 transition-opacity duration-1000" style={{ opacity: 0.3 }} />
+                            <span className={countdownStyle}>{formatCountdown(nextEventMs)}</span>
+                        </div>
+                    );
                 } else {
-                    // Post-sunset. 
-                    // We don't have "tomorrow's sunrise". 
-                    // Constraint: "☾ Sunrise HH:MM:SS (countdown to next sunrise)"
-                    // Robust Fallback: If we can't calc next sunrise, just show "Night".
-                    // Or, if difference is negative, assume next day?
-                    // Not safe without next day's data. 
-                    // But usually `solarContext` comes from daily forecast which should cover the day.
-                    // If local time is 23:00, and sunrise is 06:00 (past), we need tomorrow's 06:00.
-                    // We can estimate +24h to SR if strict needed, but that's risky.
-                    // Let's degrade gracefully.
-                    text = 'Night';
+                    // Post-sunset fallback
+                    return (
+                        <div className="flex flex-col items-center justify-center">
+                            <Moon className="w-10 h-10 text-blue-300 transition-opacity duration-1000" style={{ opacity: 0.3 }} strokeWidth={0} fill="currentColor" />
+                            <span className={countdownStyle}>Night</span>
+                        </div>
+                    );
                 }
             }
-
-            return (
-                <div className="flex items-center gap-2">
-                    <Icon className={cn("w-4 h-4 fill-current", iconColor)} strokeWidth={0} />
-                    <span className="tabular-nums tracking-wide">{text}</span>
-                </div>
-            );
         }
 
         // --- Direction B: Epistemic Delta ---
@@ -245,7 +249,7 @@ export function TemporalAnchor({
     return (
         <div
             className={cn(
-                'flex items-center space-x-2 text-sm select-none',
+                'flex items-center space-x-2 text-sm select-none transition-opacity duration-300',
                 // Invariants: Structure/Weights
                 confidenceStyle,
                 className
@@ -258,3 +262,53 @@ export function TemporalAnchor({
         </div>
     );
 }
+
+// Internal Icon Components with scoped IDs to avoid conflicts
+function SoloSunsetIcon(props: React.SVGProps<SVGSVGElement>) {
+    const idPrefix = 'sunset-icon';
+    return (
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" {...props}>
+            <defs>
+                <linearGradient id={`${idPrefix}-a`} x1="150" x2="234" y1="119.2" y2="264.8" gradientUnits="userSpaceOnUse">
+                    <stop offset="0" stopColor="#fbbf24" /><stop offset=".5" stopColor="#fbbf24" /><stop offset="1" stopColor="#f59e0b" />
+                </linearGradient>
+                <clipPath id={`${idPrefix}-b`}>
+                    <path fill="none" d="M512 306H296a21.5 21.5 0 00-14 5.3L256 334l-26-22.7a21.5 21.5 0 00-14-5.3H0V0h512Z" />
+                </clipPath>
+                <symbol id={`${idPrefix}-c`} viewBox="0 0 384 384">
+                    <circle cx="192" cy="192" r="84" fill={`url(#${idPrefix}-a)`} stroke="#f8af18" strokeMiterlimit="10" strokeWidth="6" />
+                    <path fill="none" stroke="#fbbf24" strokeLinecap="round" strokeMiterlimit="10" strokeWidth="24" d="M192 61.7V12m0 360v-49.7m92.2-222.5 35-35M64.8 319.2l35.1-35.1m0-184.4-35-35m254.5 254.5-35.1-35.1M61.7 192H12m360 0h-49.7" />
+                </symbol>
+            </defs>
+            <g clipPath={`url(#${idPrefix}-b)`}>
+                <use href={`#${idPrefix}-c`} width="384" height="384" transform="translate(64 100)" />
+            </g>
+            <path fill="none" stroke="rgba(255, 255, 255, 0.70)" strokeLinecap="round" strokeLinejoin="round" strokeWidth="18" d="M128 332h88l40 36 40-36h88" />
+        </svg>
+    );
+}
+
+function SoloSunriseIcon(props: React.SVGProps<SVGSVGElement>) {
+    const idPrefix = 'sunrise-icon';
+    return (
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" {...props}>
+            <defs>
+                <linearGradient id={`${idPrefix}-a`} x1="150" x2="234" y1="119.2" y2="264.8" gradientUnits="userSpaceOnUse">
+                    <stop offset="0" stopColor="#fbbf24" /><stop offset=".5" stopColor="#fbbf24" /><stop offset="1" stopColor="#f59e0b" />
+                </linearGradient>
+                <clipPath id={`${idPrefix}-b`}>
+                    <path fill="none" d="M512 306H304l-35.9-31.4a18.4 18.4 0 00-24.2 0L208 306H0V0h512Z" />
+                </clipPath>
+                <symbol id={`${idPrefix}-c`} viewBox="0 0 384 384">
+                    <circle cx="192" cy="192" r="84" fill={`url(#${idPrefix}-a)`} stroke="#f8af18" strokeMiterlimit="10" strokeWidth="6" />
+                    <path fill="none" stroke="#fbbf24" strokeLinecap="round" strokeMiterlimit="10" strokeWidth="24" d="M192 61.7V12m0 360v-49.7m92.2-222.5 35-35M64.8 319.2l35.1-35.1m0-184.4-35-35m254.5 254.5-35.1-35.1M61.7 192H12m360 0h-49.7" />
+                </symbol>
+            </defs>
+            <g clipPath={`url(#${idPrefix}-b)`}>
+                <use href={`#${idPrefix}-c`} width="384" height="384" transform="translate(64 100)" />
+            </g>
+            <path fill="none" stroke="rgba(255, 255, 255, 0.70)" strokeLinecap="round" strokeLinejoin="round" strokeWidth="18" d="M128 332h88l40-36 40 36h88" />
+        </svg>
+    );
+}
+
