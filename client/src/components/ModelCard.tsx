@@ -8,6 +8,7 @@ import { AlertCircle, CheckCircle2, Thermometer, Droplets, Wind, ArrowUp } from 
 import type { ModelForecast } from '@/lib/weatherApi';
 import { WEATHER_CODES } from '@/lib/weatherApi';
 import { Badge } from '@/components/ui/badge';
+import { ModelFlag } from '@/components/ModelFlag';
 import { findCurrentHourIndex } from '@/lib/timeUtils';
 import { WeatherIcon } from '@/components/icons/WeatherIcon';
 import { conditionToIconName } from '@/lib/weatherIcons';
@@ -112,7 +113,10 @@ export function ModelCard({
             }}
           />
           <div>
-            <h3 className="font-semibold">{model.name}</h3>
+            <div className="flex items-center gap-2">
+              <h3 className="font-semibold">{model.name}</h3>
+              <ModelFlag countryCode={model.countryCode} className="h-3 w-auto opacity-70 translate-y-[1px]" />
+            </div>
             <p className="text-xs text-foreground/80">{model.provider}</p>
           </div>
         </div>
@@ -123,79 +127,80 @@ export function ModelCard({
       {/* Even if rendered passed strict gating, we defend against partial data missing */}
       <div className="space-y-4">
         {/* Weather icon and temp */}
+        {/* Weather icon and temp */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <span className="text-4xl h-10 w-10 flex items-center justify-center">
               {iconName ? <WeatherIcon name={iconName} className="w-full h-full" /> : <span>--</span>}
             </span>
-            <div>
-              <p className="text-3xl font-mono font-semibold">
-                {currentHour?.temperature !== undefined ? `${Math.round(currentHour.temperature)}°` : '--'}
-              </p>
-              <p className="text-sm text-foreground/80">
-                {weatherDescription}
-              </p>
-            </div>
           </div>
-        </div>
-
-        {/* Details grid */}
-        <div className="grid grid-cols-3 gap-3 pt-3 border-t border-white/10">
-          <div className="text-center">
-            <Thermometer className="w-4 h-4 mx-auto mb-1 text-foreground/70" />
-            <p className="text-xs text-foreground/80">High/Low</p>
-            <p className="font-mono text-sm">
-              {today && today.temperatureMax !== undefined && today.temperatureMin !== undefined
-                ? `${Math.round(today.temperatureMax)}° / ${Math.round(today.temperatureMin)}°`
-                : '--'}
+          <div>
+            <p className="text-3xl font-mono font-semibold">
+              {currentHour?.temperature !== undefined ? `${Math.round(currentHour.temperature)}°` : '--'}
             </p>
-          </div>
-          <div className="text-center">
-            <Droplets className="w-4 h-4 mx-auto mb-1 text-foreground/70" />
-            <p className="text-xs text-foreground/80">Precip</p>
-            <p className="font-mono text-sm">
-              {currentHour?.precipitationProbability !== undefined
-                ? `${currentHour.precipitationProbability}%`
-                : '--'}
-            </p>
-          </div>
-          <div className="text-center">
-            <div className="flex items-center justify-center gap-1 mb-1">
-              <Wind className="w-4 h-4 text-foreground/70" />
-              {currentHour?.windDirection !== undefined && (
-                <ArrowUp
-                  className="w-3 h-3 text-foreground/70"
-                  style={{
-                    transform: `rotate(${currentHour.windDirection + 180}deg)`
-                  }}
-                />
-              )}
-            </div>
-            <p className="text-xs text-foreground/80">Wind</p>
-            <p className="font-mono text-sm">
-              {currentHour?.windSpeed !== undefined
-                ? `${Math.round(currentHour.windSpeed)} km/h`
-                : '--'}
+            <p className="text-sm text-foreground/80">
+              {weatherDescription}
             </p>
           </div>
         </div>
+      </div>
 
-        <div className="pt-3 border-t border-white/10">
-          <div className="flex items-center justify-between gap-2">
-            <p className="text-xs text-foreground/80">
-              {hasMetadata && modelAgeSeconds !== null
-                ? `Model run available: ${formatAge(modelAgeSeconds)} ago`
-                : 'Model run age: unknown'}
-            </p>
-            {isStale && (
-              <Badge
-                variant="outline"
-                className="border-destructive/60 text-destructive"
-              >
-                Stale
-              </Badge>
+      {/* Details grid */}
+      <div className="grid grid-cols-3 gap-3 pt-3 border-t border-white/10">
+        <div className="text-center">
+          <Thermometer className="w-4 h-4 mx-auto mb-1 text-foreground/70" />
+          <p className="text-xs text-foreground/80">High/Low</p>
+          <p className="font-mono text-sm">
+            {today && today.temperatureMax !== undefined && today.temperatureMin !== undefined
+              ? `${Math.round(today.temperatureMax)}° / ${Math.round(today.temperatureMin)}°`
+              : '--'}
+          </p>
+        </div>
+        <div className="text-center">
+          <Droplets className="w-4 h-4 mx-auto mb-1 text-foreground/70" />
+          <p className="text-xs text-foreground/80">Precip</p>
+          <p className="font-mono text-sm">
+            {currentHour?.precipitationProbability !== undefined
+              ? `${currentHour.precipitationProbability}%`
+              : '--'}
+          </p>
+        </div>
+        <div className="text-center">
+          <div className="flex items-center justify-center gap-1 mb-1">
+            <Wind className="w-4 h-4 text-foreground/70" />
+            {currentHour?.windDirection !== undefined && (
+              <ArrowUp
+                className="w-3 h-3 text-foreground/70"
+                style={{
+                  transform: `rotate(${currentHour.windDirection + 180}deg)`
+                }}
+              />
             )}
           </div>
+          <p className="text-xs text-foreground/80">Wind</p>
+          <p className="font-mono text-sm">
+            {currentHour?.windSpeed !== undefined
+              ? `${Math.round(currentHour.windSpeed)} km/h`
+              : '--'}
+          </p>
+        </div>
+      </div>
+
+      <div className="pt-3 border-t border-white/10">
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-xs text-foreground/80">
+            {hasMetadata && modelAgeSeconds !== null
+              ? `Model run available: ${formatAge(modelAgeSeconds)} ago`
+              : 'Model run age: unknown'}
+          </p>
+          {isStale && (
+            <Badge
+              variant="outline"
+              className="border-destructive/60 text-destructive"
+            >
+              Stale
+            </Badge>
+          )}
         </div>
       </div>
     </motion.div>

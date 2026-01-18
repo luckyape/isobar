@@ -24,6 +24,7 @@ import {
   ComparisonTooltipRow,
   ComparisonTooltipSection
 } from '@/components/ComparisonTooltip';
+import { ModelEmblem } from '@/components/ModelEmblem';
 import {
   findCurrentHourIndex,
   formatHourLabel,
@@ -211,8 +212,8 @@ export function HourlyChart({
               value={formatTemperature(data.consensusMean)}
             />
             <ComparisonTooltipRow
-              label="Range"
-              value={`${formatTemperature(data.consensusMin)} - ${formatTemperature(data.consensusMax)}`}
+              label="High / Low"
+              value={`${formatTemperature(data.consensusMax)} / ${formatTemperature(data.consensusMin)}`}
             />
             <ComparisonTooltipRow
               label="Temp agreement"
@@ -257,18 +258,20 @@ export function HourlyChart({
             return (
               <ComparisonTooltipRow
                 key={model.id}
-                label={`${model.name}:`}
-                value={
-                  <span className="flex items-center">
-                    {formatTemperature(value)}
-                    {deltaElem}
-                  </span>
-                }
-                icon={
-                  <span
-                    className="w-2 h-2 triangle-icon"
-                    style={{ backgroundColor: model.color }}
+                label={
+                  <ModelEmblem
+                    model={model}
+                    className="gap-2"
+                    iconClassName="h-2 w-2"
                   />
+                }
+                value={
+                  <div className="flex items-center gap-1.5">
+                    <span className="flex items-center">
+                      {formatTemperature(value)}
+                      {deltaElem}
+                    </span>
+                  </div>
                 }
               />
             );
@@ -446,7 +449,12 @@ export function HourlyChart({
               className="w-6 h-0.5 rounded"
               style={{ backgroundColor: model.color }}
             />
-            <span className="text-xs text-foreground/80">{model.name}</span>
+            <ModelEmblem
+              model={model}
+              className="ml-1"
+              iconClassName="hidden"
+              textClassName="text-xs"
+            />
           </div>
         ))}
       </div>

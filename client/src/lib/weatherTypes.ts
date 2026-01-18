@@ -6,6 +6,7 @@ export interface WeatherModel {
     color: string;
     description: string;
     metadataId?: string;
+    countryCode?: string;
 }
 
 export interface HourlyForecast {

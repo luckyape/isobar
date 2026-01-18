@@ -32,6 +32,7 @@ import {
   TableRow
 } from '@/components/ui/table';
 import { HourlyWeatherBugCard } from '@/components/HourlyWeatherBugCard';
+import { ModelEmblem } from '@/components/ModelEmblem';
 
 type TimeSlot = {
   time: string;
@@ -222,15 +223,11 @@ export function ModelForecastDrilldownPanel({
         >
           <div className="flex items-start justify-between gap-4">
             <div className="min-w-0">
-              <div className="flex items-center gap-2">
-                <span
-                  className="h-2.5 w-2.5 triangle-icon"
-                  style={{ backgroundColor: modelColor }}
-                />
-                <h3 className="text-base font-semibold leading-none">
-                  {forecast.model.name}
-                </h3>
-              </div>
+              <ModelEmblem
+                model={forecast.model}
+                className="gap-2"
+                textClassName="text-base font-semibold leading-none"
+              />
               <p className="mt-1 text-xs text-foreground/70">
                 {forecast.model.provider}
               </p>

@@ -8,6 +8,7 @@ import { memo, useCallback, useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
 import { ChevronDownIcon, ArrowUp } from 'lucide-react';
 import { ModelBadgeIcon } from '@/components/ModelBadgeIcon';
+import { ModelEmblem } from '@/components/ModelEmblem';
 import {
   Drawer,
   DrawerClose,
@@ -63,6 +64,7 @@ type ModelBreakdownEntry = {
   color: string;
   daily?: ModelDailyForecast;
   runAvailabilityTime?: number | null;
+  countryCode?: string;
 };
 
 type ModelHourlyEntry = {
@@ -70,6 +72,7 @@ type ModelHourlyEntry = {
   color: string;
   hour?: HourlyForecast;
   runAvailabilityTime?: number | null;
+  countryCode?: string;
 };
 
 type OutlierInfo = {
@@ -247,7 +250,8 @@ export const ModelBreakdownPanel = memo(function ModelBreakdownPanel({
           name,
           color: forecast?.model.color ?? 'oklch(0.95 0.01 240)',
           daily: undefined,
-          runAvailabilityTime: null
+          runAvailabilityTime: null,
+          countryCode: forecast?.model.countryCode
         }];
       }
       const daily = forecast.daily.find((entry) => entry.date === day.date)
@@ -259,7 +263,8 @@ export const ModelBreakdownPanel = memo(function ModelBreakdownPanel({
         name,
         color: forecast.model.color,
         daily,
-        runAvailabilityTime
+        runAvailabilityTime,
+        countryCode: forecast.model.countryCode
       }];
     });
   }, [day.date, dayIndex, forecasts, modelNames, modelOrder]);
@@ -452,11 +457,10 @@ export const ModelBreakdownPanel = memo(function ModelBreakdownPanel({
             >
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2 text-[11px] text-foreground/80">
-                  <span
-                    className="h-2.5 w-2.5 triangle-icon"
-                    style={{ backgroundColor: entry.color }}
+                  <ModelEmblem
+                    model={{ name: entry.name, color: entry.color, countryCode: entry.countryCode }}
+                    className="text-foreground/80"
                   />
-                  <span className="font-medium">{entry.name}</span>
                 </div>
                 <span className={`h-2 w-2 rounded-full ${freshnessToneClass[freshnessTone]}`} />
               </div>
@@ -516,8 +520,8 @@ export const ModelBreakdownPanel = memo(function ModelBreakdownPanel({
                   style={conditionOutlierStyle}
                 >
                   <span>Cond</span>
-                  <span className="text-sm leading-none flex justify-end">
-                    {conditionIconName ? <WeatherIcon name={conditionIconName} className="h-4 w-4" /> : '—'}
+                  <span className="text-sm leading-none flex justify-end overflow-visible">
+                    {conditionIconName ? <WeatherIcon name={conditionIconName} className="h-9 w-9 -my-2.5 -mr-2 text-foreground/80" /> : '—'}
                   </span>
                 </div>
               </div>
@@ -591,7 +595,8 @@ const ModelHourlyBreakdownPanel = memo(function ModelHourlyBreakdownPanel({
           name,
           color: forecast?.model.color ?? 'oklch(0.95 0.01 240)',
           hour: undefined,
-          runAvailabilityTime: null
+          runAvailabilityTime: null,
+          countryCode: forecast?.model.countryCode
         }];
       }
       let currentHour;
@@ -613,7 +618,8 @@ const ModelHourlyBreakdownPanel = memo(function ModelHourlyBreakdownPanel({
         name,
         color: forecast.model.color,
         hour: currentHour,
-        runAvailabilityTime
+        runAvailabilityTime,
+        countryCode: forecast.model.countryCode
       }];
     });
   }, [forecasts, modelOrder, modelNames, timezone]);
@@ -828,11 +834,10 @@ const ModelHourlyBreakdownPanel = memo(function ModelHourlyBreakdownPanel({
             >
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2 text-[11px] text-foreground/80">
-                  <span
-                    className="h-2.5 w-2.5 triangle-icon"
-                    style={{ backgroundColor: entry.color }}
+                  <ModelEmblem
+                    model={{ name: entry.name, color: entry.color, countryCode: entry.countryCode }}
+                    className="text-foreground/80"
                   />
-                  <span className="font-medium">{entry.name}</span>
                 </div>
                 {/* Freshness indicator - more prominent in freshness mode */}
                 <div className={cn(
@@ -929,8 +934,8 @@ const ModelHourlyBreakdownPanel = memo(function ModelHourlyBreakdownPanel({
                   style={conditionOutlierStyle}
                 >
                   <span>Cond</span>
-                  <span className="text-sm leading-none flex justify-end">
-                    {conditionIconName ? <WeatherIcon name={conditionIconName} className="h-4 w-4" /> : '—'}
+                  <span className="text-sm leading-none flex justify-end overflow-visible">
+                    {conditionIconName ? <WeatherIcon name={conditionIconName} className="h-9 w-9 -my-2.5 -mr-2 text-foreground/80" /> : '—'}
                   </span>
                 </div>
               </div>

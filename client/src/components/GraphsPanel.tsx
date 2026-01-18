@@ -89,6 +89,7 @@ type PrecipRow = {
   type: 'model' | 'consensus' | 'observed';
   available: boolean;
   color?: string;
+  countryCode?: string;
 };
 
 interface GraphsPanelProps {
@@ -499,6 +500,7 @@ function PrecipitationComparisonGraph({
       id: model.id,
       label: model.name,
       color: model.color,
+      countryCode: model.countryCode,
       type: 'model' as const,
       available: modelAvailability.get(model.id) ?? false
     }));
@@ -1142,7 +1144,7 @@ function ConditionsComparisonGraph({
                               <div className="absolute inset-0 -mx-[2px] rounded bg-primary/5 pointer-events-none" />
                             )}
                             <ConditionCell
-                              icon={weatherInfo?.iconName ? <WeatherIcon name={weatherInfo.iconName as any} className="h-4 w-4" /> : null}
+                              icon={weatherInfo?.iconName ? <WeatherIcon name={weatherInfo.iconName as any} className="h-[26px] w-[26px]" isStatic variant="fill" /> : null}
                               isDisabled={!row.available}
                               isActive={isActive}
                               isConsensus={isConsensusRow}
@@ -1439,7 +1441,7 @@ function ConditionCell({
         />
       )}
       {icon && (
-        <span className="text-base leading-none">{icon}</span>
+        <span className="h-[26px] w-[26px] flex items-center justify-center text-foreground">{icon}</span>
       )}
     </div>
   );

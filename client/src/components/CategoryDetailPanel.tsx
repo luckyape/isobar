@@ -1,8 +1,8 @@
 import { useMemo, useState } from 'react';
 import { useReducedMotion } from 'framer-motion';
-import { ArrowUp } from 'lucide-react';
+import { ArrowUp, Thermometer } from 'lucide-react';
 import type { ModelForecast } from '@/lib/weatherApi';
-import { WEATHER_CODES } from '@/lib/weatherApi';
+import { WEATHER_CODES, WEATHER_MODELS } from '@/lib/weatherApi';
 import { findCurrentHourIndex, isSameDate } from '@/lib/timeUtils';
 import { cn } from '@/lib/utils';
 import { ForecastDisplay } from '@/components/ForecastDisplay';
@@ -12,6 +12,8 @@ import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { WeatherIcon } from '@/components/icons/WeatherIcon';
 import { getIsDay } from '@/lib/dayNight';
 import { conditionToIconName } from '@/lib/weatherIcons';
+import { ModelFlag } from '@/components/ModelFlag';
+import { ModelEmblem } from '@/components/ModelEmblem';
 
 const MODEL_ORDER = ['ECMWF', 'GFS', 'ICON', 'GEM'] as const;
 const MODEL_ORDER_SET = new Set<string>(MODEL_ORDER);
@@ -29,6 +31,7 @@ export type CategoryDetailKey = keyof typeof CATEGORY_DETAIL_META;
 type ModelEntry = {
   name: string;
   color: string;
+  countryCode?: string;
   hour?: ModelForecast['hourly'][number];
 };
 
@@ -90,13 +93,17 @@ export function CategoryDetailPanel({
     const includeMissing = !modelNames?.length;
     return modelOrder.flatMap<ModelEntry>((name) => {
       const forecast = forecastByName.get(name);
+      const modelDef = WEATHER_MODELS.find(m => m.name === name);
+      const countryCode = forecast?.model.countryCode ?? modelDef?.countryCode;
+
       if (!forecast || forecast.error || forecast.hourly.length === 0) {
         if (!includeMissing) {
           return [];
         }
         return [{
           name,
-          color: forecast?.model.color ?? FALLBACK_MODEL_COLOR,
+          color: forecast?.model.color ?? modelDef?.color ?? FALLBACK_MODEL_COLOR,
+          countryCode,
           hour: undefined
         }];
       }
@@ -108,6 +115,7 @@ export function CategoryDetailPanel({
       return [{
         name,
         color: forecast.model.color,
+        countryCode,
         hour: currentHour
       }];
     });
@@ -152,12 +160,16 @@ export function CategoryDetailPanel({
           const icon = isConditions
             ? (
               weatherInfo && Number.isFinite(entry.hour?.weatherCode)
-                ? <WeatherIcon name={conditionToIconName(entry.hour!.weatherCode, isDay)} className="h-6 w-6 sm:h-8 sm:w-8 text-foreground/80" />
-                : <span className="text-2xl">?</span>
+                ? <WeatherIcon name={conditionToIconName(entry.hour!.weatherCode, isDay)} className="h-10 w-10 sm:h-14 sm:w-14 text-foreground/80" />
+                : <span className="text-4xl">?</span>
             )
-            : (
-              <WeatherIcon name={categoryMeta.icon} className="h-6 w-6 sm:h-8 sm:w-8 text-foreground/80" />
-            );
+            : category === 'temperature'
+              ? (
+                <Thermometer className="h-5 w-5 sm:h-7 sm:w-7 text-foreground/80" />
+              )
+              : (
+                <WeatherIcon name={categoryMeta.icon} className="h-10 w-10 sm:h-14 sm:w-14 text-foreground/80" />
+              );
           const valueLabel = isConditions ? (weatherInfo?.description ?? '—') : null;
           const hideValue = false;
           const value = isConditions
@@ -193,10 +205,10 @@ export function CategoryDetailPanel({
             </span>
           ) : null;
           const cardClassName = cn(
-            'relative rounded-lg sm:rounded-xl border border-white/10 bg-subtle p-2.5 sm:p-4 text-foreground/90 flex flex-col gap-2 sm:gap-3',
+            'relative rounded-lg sm:rounded-xl border border-white/10 bg-subtle p-2.5 sm:p-4 text-foreground/90 flex flex-col gap-1 sm:gap-1.5',
             'min-h-28 sm:min-h-32'
           );
-          const displayClassName = cn('mt-1.5 sm:mt-3 items-start text-left');
+          const displayClassName = cn('mt-0.5 sm:mt-1 items-start text-left');
           const canOpen = Boolean(entry.hour);
           const delay = reduceMotion || !evidenceOpen ? 0 : 60 + index * 35;
           const transitionStyle = delay > 0 ? { transitionDelay: `${delay}ms` } : undefined;
@@ -230,13 +242,13 @@ export function CategoryDetailPanel({
                 <ModelBadgeIcon open={activeModelName === entry.name} className={activeModelName === entry.name ? 'opacity-100' : 'opacity-70'} />
               </button>
 
-              <div className="flex items-center gap-2 text-[9px] sm:text-[10px] font-semibold uppercase tracking-caps text-foreground/70">
-                <span
-                  className="h-2 w-2 sm:h-2.5 sm:w-2.5 triangle-icon"
-                  style={{ backgroundColor: entry.color }}
-                />
-                <span>{entry.name}</span>
-              </div>
+              <ModelEmblem
+                model={entry}
+                className="text-[9px] sm:text-[10px] uppercase tracking-caps text-foreground/70 justify-center sm:justify-start"
+                iconClassName="h-2 w-2 sm:h-2.5 sm:w-2.5"
+                textClassName="leading-none"
+                flagClassName="h-2.5 w-auto opacity-80"
+              />
               <ForecastDisplay
                 value={value}
                 unit={categoryMeta.unit}

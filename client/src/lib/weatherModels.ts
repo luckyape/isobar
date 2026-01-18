@@ -9,7 +9,8 @@ export const WEATHER_MODELS: WeatherModel[] = [
         endpoint: 'https://api.open-meteo.com/v1/gem',
         color: 'oklch(0.75 0.15 195)', // Arctic cyan
         description: 'Canadian Global Environmental Multiscale Model - Primary for Canada',
-        metadataId: 'cmc_gem_gdps'
+        metadataId: 'cmc_gem_gdps',
+        countryCode: 'CA'
     },
     {
         id: 'gfs_seamless',
@@ -18,7 +19,8 @@ export const WEATHER_MODELS: WeatherModel[] = [
         endpoint: 'https://api.open-meteo.com/v1/gfs',
         color: 'oklch(0.70 0.16 280)', // Purple
         description: 'Global Forecast System - US model with global coverage',
-        metadataId: 'ncep_gfs013'
+        metadataId: 'ncep_gfs013',
+        countryCode: 'US'
     },
     {
         id: 'ecmwf_ifs',
@@ -27,7 +29,8 @@ export const WEATHER_MODELS: WeatherModel[] = [
         endpoint: 'https://api.open-meteo.com/v1/ecmwf',
         color: 'oklch(0.72 0.19 160)', // Green
         description: 'European model - IFS HRES 9 km global forecast',
-        metadataId: 'ecmwf_ifs'
+        metadataId: 'ecmwf_ifs',
+        countryCode: 'EU'
     },
     {
         id: 'icon_seamless',
@@ -36,6 +39,7 @@ export const WEATHER_MODELS: WeatherModel[] = [
         endpoint: 'https://api.open-meteo.com/v1/dwd-icon',
         color: 'oklch(0.75 0.18 85)', // Amber
         description: 'German Icosahedral Nonhydrostatic model',
-        metadataId: 'dwd_icon'
+        metadataId: 'dwd_icon',
+        countryCode: 'DE'
     }
 ];
