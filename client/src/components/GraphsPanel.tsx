@@ -89,7 +89,6 @@ type PrecipRow = {
   type: 'model' | 'consensus' | 'observed';
   available: boolean;
   color?: string;
-  countryCode?: string;
 };
 
 interface GraphsPanelProps {
@@ -500,7 +499,6 @@ function PrecipitationComparisonGraph({
       id: model.id,
       label: model.name,
       color: model.color,
-      countryCode: model.countryCode,
       type: 'model' as const,
       available: modelAvailability.get(model.id) ?? false
     }));

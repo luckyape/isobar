@@ -9,8 +9,7 @@ export function MatrixRowLabel({
   color,
   available,
   labelTint,
-  unavailableReason,
-  countryCode
+  unavailableReason
 }: {
   label: string;
   type: MatrixRowType;
@@ -18,7 +17,6 @@ export function MatrixRowLabel({
   available: boolean;
   labelTint?: string;
   unavailableReason?: string;
-  countryCode?: string;
 }) {
   return (
     <div
@@ -28,9 +26,9 @@ export function MatrixRowLabel({
       )}
       style={labelTint ? { background: labelTint } : undefined}
     >
-      {type === 'model' && color && (
+      {type === 'model' && (
         <span
-          className="h-2 w-2 triangle-icon"
+          className="h-2.5 w-2.5 triangle-icon"
           style={{ backgroundColor: color }}
         />
       )}
